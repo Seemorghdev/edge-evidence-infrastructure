@@ -12,12 +12,27 @@ TF_ROOT = ROOT / "terraform"
 ENV_ROOT = TF_ROOT / "environments" / "gke-autopilot"
 MODULE_ROOT = TF_ROOT / "modules" / "gke-autopilot-cluster"
 
+# Build WIF tokens from fragments so the scanner can inspect its own source without
+# falsely flagging the policy definitions themselves.
+WIF_COORDINATE = re.compile(
+    "workloadIdentity" + "Pools/|" + "workload" + "_identity_pool",
+    re.I,
+)
+
 PRIVATE_PATTERNS = {
-    "uuid-shaped project coordinate": re.compile(r"\bproject-[0-9a-f]{8}-[0-9a-f-]{20,}\b", re.I),
-    "service-account email": re.compile(r"\b[^\s@]+@[^\s@]+\.iam\.gserviceaccount\.com\b", re.I),
-    "WIF provider coordinate": re.compile(r"workloadIdentityPools/|workload_identity_pool", re.I),
+    "segmented project coordinate": re.compile(
+        r"\bproject-[0-9a-f]{8}(?:-[0-9a-f]{3,12}){2,5}\b",
+        re.I,
+    ),
+    "service-account email": re.compile(
+        r"\b[^\s@]+@[^\s@]+\.iam\.gserviceaccount\.com\b",
+        re.I,
+    ),
+    "WIF provider coordinate": WIF_COORDINATE,
     "private registry coordinate": re.compile(r"\.pkg\.dev/", re.I),
-    "private key material": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    "private key material": re.compile(
+        r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    ),
 }
 
 FORBIDDEN_TERRAFORM = (
@@ -31,7 +46,7 @@ FORBIDDEN_TERRAFORM = (
     'resource "google_project_iam',
     'resource "kubernetes_',
     'resource "helm_',
-    'workload_identity_pool',
+    "workload" + "_identity_pool",
 )
 
 FORBIDDEN_CI = (
@@ -109,8 +124,11 @@ def main() -> int:
         failures.append("explicit provider access-token transport is forbidden")
 
     lockfile = ENV_ROOT / ".terraform.lock.hcl"
-    if not lockfile.is_file() or 'version     = "7.31.0"' not in lockfile.read_text():
+    lock_text = lockfile.read_text() if lockfile.is_file() else ""
+    if 'version     = "7.31.0"' not in lock_text:
         failures.append("provider lockfile missing or not pinned to 7.31.0")
+    if '"h1:' not in lock_text or lock_text.count('"zh:') < 2:
+        failures.append("provider lockfile must contain the complete generated checksum set")
 
     workflow_root = ROOT / ".github" / "workflows"
     for path in workflow_root.glob("*.yml"):
@@ -118,6 +136,11 @@ def main() -> int:
         for fragment in FORBIDDEN_CI:
             if fragment in text:
                 failures.append(f"{path.relative_to(ROOT)}: forbidden CI authority {fragment!r}")
+
+    required_workflow = workflow_root / "required.yml"
+    required_text = required_workflow.read_text() if required_workflow.is_file() else ""
+    if "-backend=false" not in required_text or "-lockfile=readonly" not in required_text:
+        failures.append("required CI must initialize with backend disabled and committed lock readonly")
 
     if failures:
         print("Phase-1 infrastructure policy FAILED")
