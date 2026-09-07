@@ -37,6 +37,12 @@ jobs:
         run: |
           terraform -chdir=terraform/environments/cloud-run-service-example validate
           terraform -chdir=terraform/environments/cloud-run-service-example test -no-color
+      - name: Initialize Cloud Run module credential-free
+        run: terraform -chdir=terraform/modules/cloud-run-service init -backend=false -input=false
+      - name: Validate and test Cloud Run module
+        run: |
+          terraform -chdir=terraform/modules/cloud-run-service validate
+          terraform -chdir=terraform/modules/cloud-run-service test -no-color
       - name: Authority and publication policy
         run: python scripts/check_policy.py
       - name: Repository tests
