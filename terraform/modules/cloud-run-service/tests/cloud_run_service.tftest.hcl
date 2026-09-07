@@ -56,35 +56,39 @@ run "flows_custom_runtime_configuration" {
   }
 
   assert {
-    condition     = google_cloud_run_v2_service.this.template[0].containers[0].ports[0].container_port == 9090
+    condition = one(
+      one(google_cloud_run_v2_service.this.template).containers
+    ).ports[0].container_port == 9090
     error_message = "Caller-supplied container port must flow into the planned service."
   }
 
   assert {
-    condition     = google_cloud_run_v2_service.this.template[0].scaling[0].max_instance_count == 7
+    condition = one(
+      google_cloud_run_v2_service.this.template
+    ).scaling[0].max_instance_count == 7
     error_message = "Caller-supplied max instance count must flow into the planned service."
   }
 
   assert {
     condition = (
-      google_cloud_run_v2_service.this.template[0].containers[0].resources[0].limits["cpu"] == "2" &&
-      google_cloud_run_v2_service.this.template[0].containers[0].resources[0].limits["memory"] == "1Gi"
+      one(one(one(google_cloud_run_v2_service.this.template).containers).resources).limits["cpu"] == "2" &&
+      one(one(one(google_cloud_run_v2_service.this.template).containers).resources).limits["memory"] == "1Gi"
     )
     error_message = "Caller-supplied CPU and memory limits must flow into the planned service."
   }
 
   assert {
     condition = (
-      google_cloud_run_v2_service.this.template[0].containers[0].env[0].name == "APP_MODE" &&
-      google_cloud_run_v2_service.this.template[0].containers[0].env[0].value == "review"
+      one(one(one(google_cloud_run_v2_service.this.template).containers).env).name == "APP_MODE" &&
+      one(one(one(google_cloud_run_v2_service.this.template).containers).env).value == "review"
     )
     error_message = "A non-secret environment variable must flow into the planned service."
   }
 
   assert {
     condition = (
-      google_cloud_run_v2_service.this.template[0].containers[0].startup_probe[0].http_get[0].path == "/readyz" &&
-      google_cloud_run_v2_service.this.template[0].containers[0].liveness_probe[0].http_get[0].path == "/readyz"
+      one(one(one(one(google_cloud_run_v2_service.this.template).containers).startup_probe).http_get).path == "/readyz" &&
+      one(one(one(one(google_cloud_run_v2_service.this.template).containers).liveness_probe).http_get).path == "/readyz"
     )
     error_message = "Startup and liveness HTTP probes must bind the configured health path."
   }
