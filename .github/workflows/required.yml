@@ -37,6 +37,12 @@ jobs:
         run: |
           terraform -chdir=terraform/environments/cloud-run-service-example validate
           terraform -chdir=terraform/environments/cloud-run-service-example test -no-color
+      - name: Initialize global-address example offline
+        run: terraform -chdir=terraform/environments/gke-exposure-address init -backend=false -input=false -lockfile=readonly
+      - name: Validate and test global-address example
+        run: |
+          terraform -chdir=terraform/environments/gke-exposure-address validate
+          terraform -chdir=terraform/environments/gke-exposure-address test -no-color
       - name: Initialize Cloud Run module credential-free
         run: terraform -chdir=terraform/modules/cloud-run-service init -backend=false -input=false
       - name: Validate and test Cloud Run module

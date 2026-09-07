@@ -13,6 +13,7 @@ class InfrastructurePolicyTests(unittest.TestCase):
         self.assertEqual(roots, [
             "terraform/environments/cloud-run-service-example",
             "terraform/environments/gke-autopilot",
+            "terraform/environments/gke-exposure-address",
             "terraform/modules/cloud-run-service",
             "terraform/modules/gke-autopilot-cluster",
         ])
@@ -21,6 +22,13 @@ class InfrastructurePolicyTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text()
         self.assertIn("remains the live Project 03 authority", readme)
         self.assertIn("desired-state", readme)
+
+    def test_global_address_is_sanitized_desired_state_only(self) -> None:
+        address_main = (ROOT / "terraform/environments/gke-exposure-address/main.tf").read_text()
+        self.assertEqual(address_main.count('resource "google_compute_global_address"'), 1)
+        self.assertIn('address_type = "EXTERNAL"', address_main)
+        self.assertIn('ip_version   = "IPV4"', address_main)
+        self.assertIn("prevent_destroy = true", address_main)
 
 if __name__ == "__main__":
     unittest.main()
