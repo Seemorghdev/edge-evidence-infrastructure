@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import subprocess
 from pathlib import Path
@@ -13,10 +14,12 @@ GKE_ENV = TF_ROOT / "environments" / "gke-autopilot"
 GKE_MODULE = TF_ROOT / "modules" / "gke-autopilot-cluster"
 RUN_ENV = TF_ROOT / "environments" / "cloud-run-service-example"
 RUN_MODULE = TF_ROOT / "modules" / "cloud-run-service"
+ADDRESS_ENV = TF_ROOT / "environments" / "gke-exposure-address"
 
 APPROVED_TERRAFORM_ROOTS = {
     "terraform/environments/cloud-run-service-example",
     "terraform/environments/gke-autopilot",
+    "terraform/environments/gke-exposure-address",
     "terraform/modules/cloud-run-service",
     "terraform/modules/gke-autopilot-cluster",
 }
@@ -25,12 +28,15 @@ FORBIDDEN_PATH_PREFIXES = (
     "kubernetes/",
     "ops/",
     "terraform/environments/gcp-ops-bridge/",
-    "terraform/environments/gke-exposure-address/",
 )
 
 WIF_COORDINATE = re.compile(
     "workloadIdentity" + "Pools/|" + "workload" + "_identity_pool",
     re.I,
+)
+IPV4_LITERAL = re.compile(
+    r"(?<![0-9])(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})"
+    r"(?:\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})){3}(?![0-9])"
 )
 PRIVATE_PATTERNS = {
     "segmented project coordinate": re.compile(
@@ -49,7 +55,6 @@ PRIVATE_PATTERNS = {
 }
 FORBIDDEN_TERRAFORM = (
     'resource "google_project_service"',
-    'resource "google_compute_global_address"',
     'resource "google_compute_network"',
     'resource "google_compute_subnetwork"',
     'resource "google_container_node_pool"',
@@ -88,7 +93,7 @@ def main() -> int:
     }
     if actual_terraform_roots != APPROVED_TERRAFORM_ROOTS:
         failures.append(
-            "Terraform roots must be exactly the approved GKE and Cloud Run roots/modules: "
+            "Terraform roots must be exactly the approved GKE, Cloud Run, and global-address roots/modules: "
             f"{sorted(actual_terraform_roots)}"
         )
 
@@ -113,12 +118,18 @@ def main() -> int:
         for label, pattern in PRIVATE_PATTERNS.items():
             if pattern.search(text):
                 failures.append(f"{rel}: {label}")
+        for match in IPV4_LITERAL.finditer(text):
+            address = ipaddress.ip_address(match.group(0))
+            if address.is_global:
+                failures.append(f"{rel}: globally routable IPv4 literal is forbidden")
 
     terraform_text = "\n".join(path.read_text() for path in TF_ROOT.rglob("*.tf"))
     if terraform_text.count('resource "google_container_cluster" "this"') != 1:
         failures.append("must contain exactly one Autopilot cluster resource")
     if terraform_text.count('resource "google_cloud_run_v2_service" "this"') != 1:
         failures.append("must contain exactly one reusable Cloud Run service resource")
+    if terraform_text.count('resource "google_compute_global_address" "this"') != 1:
+        failures.append("must contain exactly one reusable global-address resource")
     for fragment in FORBIDDEN_TERRAFORM:
         if fragment in terraform_text:
             failures.append(f"forbidden Terraform authority: {fragment}")
@@ -160,6 +171,29 @@ def main() -> int:
         if required not in run_vars:
             failures.append(f"Cloud Run input invariant missing: {required}")
 
+    address_main = (ADDRESS_ENV / "main.tf").read_text()
+    if len(re.findall(r'(?m)^\s*resource\s+"', address_main)) != 1:
+        failures.append("global-address environment must contain exactly one Terraform resource")
+    for required in (
+        'resource "google_compute_global_address" "this"',
+        "project      = var.project_id",
+        "name         = var.name",
+        "address      = var.desired_address",
+        'address_type = "EXTERNAL"',
+        'ip_version   = "IPV4"',
+        "labels       = var.labels",
+        "prevent_destroy = true",
+    ):
+        if required not in address_main:
+            failures.append(f"global-address invariant missing: {required}")
+    address_tf = "\n".join(path.read_text() for path in ADDRESS_ENV.rglob("*.tf"))
+    for forbidden in ('data "', 'import {', 'moved {', 'resource "google_container_cluster"', 'resource "google_cloud_run_v2_service"'):
+        if forbidden in address_tf:
+            failures.append(f"global-address environment contains forbidden authority: {forbidden}")
+    address_vars = (ADDRESS_ENV / "variables.tf").read_text()
+    if 'variable "desired_address"' not in address_vars or "default     = null" not in address_vars:
+        failures.append("global-address desired_address must remain optional with a null default")
+
     gke_versions = (GKE_ENV / "versions.tf").read_text()
     if 'backend "gcs" {}' not in gke_versions or re.search(
         r"\b(bucket|prefix)\s*=", gke_versions
@@ -170,7 +204,16 @@ def main() -> int:
     if 'backend "' in run_versions:
         failures.append("Cloud Run example must not bind a remote backend")
 
-    for env in (GKE_ENV, RUN_ENV):
+    address_versions = (ADDRESS_ENV / "versions.tf").read_text()
+    if 'backend "gcs" {}' not in address_versions or re.search(
+        r"\b(bucket|prefix)\s*=", address_versions
+    ):
+        failures.append("global-address backend must remain externally configured without coordinates")
+    for forbidden in ("access_token", "impersonate_service_account"):
+        if forbidden in address_versions:
+            failures.append(f"global-address provider authority is forbidden: {forbidden}")
+
+    for env in (GKE_ENV, RUN_ENV, ADDRESS_ENV):
         lock = (env / ".terraform.lock.hcl").read_text()
         if (
             'version     = "7.31.0"' not in lock
@@ -183,7 +226,7 @@ def main() -> int:
     for fragment in FORBIDDEN_CI:
         if fragment in workflow:
             failures.append(f"required CI contains forbidden authority {fragment!r}")
-    for env_name in ("gke-autopilot", "cloud-run-service-example"):
+    for env_name in ("gke-autopilot", "cloud-run-service-example", "gke-exposure-address"):
         needle = (
             f"terraform/environments/{env_name} init "
             "-backend=false -input=false -lockfile=readonly"
