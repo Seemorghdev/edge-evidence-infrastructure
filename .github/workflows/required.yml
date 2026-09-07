@@ -29,13 +29,10 @@ jobs:
       - name: Terraform format
         run: terraform fmt -check -recursive
 
-      - name: Regenerate provider lock for review
+      - name: Initialize without backend using committed lock
         run: >-
           terraform -chdir=terraform/environments/gke-autopilot init
-          -backend=false -input=false
-
-      - name: Show generated provider lock
-        run: cat terraform/environments/gke-autopilot/.terraform.lock.hcl
+          -backend=false -input=false -lockfile=readonly
 
       - name: Validate desired state
         run: terraform -chdir=terraform/environments/gke-autopilot validate
