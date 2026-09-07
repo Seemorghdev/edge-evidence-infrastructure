@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline Phase-1 authority and publication-safety checks."""
+"""Offline authority and publication-safety checks."""
 
 from __future__ import annotations
 
@@ -9,16 +9,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TF_ROOT = ROOT / "terraform"
-ENV_ROOT = TF_ROOT / "environments" / "gke-autopilot"
-MODULE_ROOT = TF_ROOT / "modules" / "gke-autopilot-cluster"
+GKE_ENV = TF_ROOT / "environments" / "gke-autopilot"
+GKE_MODULE = TF_ROOT / "modules" / "gke-autopilot-cluster"
+RUN_ENV = TF_ROOT / "environments" / "cloud-run-service-example"
+RUN_MODULE = TF_ROOT / "modules" / "cloud-run-service"
 
-# Build WIF tokens from fragments so the scanner can inspect its own source without
-# falsely flagging the policy definitions themselves.
+APPROVED_TERRAFORM_ROOTS = {
+    "terraform/environments/cloud-run-service-example",
+    "terraform/environments/gke-autopilot",
+    "terraform/modules/cloud-run-service",
+    "terraform/modules/gke-autopilot-cluster",
+}
+FORBIDDEN_PATH_PREFIXES = (
+    "deploy/kubernetes/",
+    "kubernetes/",
+    "ops/",
+    "terraform/environments/gcp-ops-bridge/",
+    "terraform/environments/gke-exposure-address/",
+)
+
 WIF_COORDINATE = re.compile(
     "workloadIdentity" + "Pools/|" + "workload" + "_identity_pool",
     re.I,
 )
-
 PRIVATE_PATTERNS = {
     "segmented project coordinate": re.compile(
         r"\bproject-[0-9a-f]{8}(?:-[0-9a-f]{3,12}){2,5}\b",
@@ -34,7 +47,6 @@ PRIVATE_PATTERNS = {
         r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
     ),
 }
-
 FORBIDDEN_TERRAFORM = (
     'resource "google_project_service"',
     'resource "google_compute_global_address"',
@@ -47,8 +59,9 @@ FORBIDDEN_TERRAFORM = (
     'resource "kubernetes_',
     'resource "helm_',
     "workload" + "_identity_pool",
+    "access_token",
+    "impersonate_service_account",
 )
-
 FORBIDDEN_CI = (
     "id-token: write",
     "google-github-actions/auth",
@@ -60,50 +73,57 @@ FORBIDDEN_CI = (
 
 
 def tracked_files() -> list[Path]:
-    output = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
-    return [ROOT / item.decode() for item in output.split(b"\0") if item]
-
-
-def text_files() -> list[Path]:
-    result = []
-    for path in tracked_files():
-        if path.name == "LICENSE":
-            continue
-        try:
-            path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, IsADirectoryError):
-            continue
-        result.append(path)
-    return result
+    raw = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
+    return [ROOT / item.decode() for item in raw.split(b"\0") if item]
 
 
 def main() -> int:
     failures: list[str] = []
     files = tracked_files()
 
-    forbidden_suffixes = (".tfstate", ".tfplan", ".plan", ".pem", ".key", ".p12")
+    actual_terraform_roots = {
+        path.relative_to(ROOT).as_posix()
+        for path in TF_ROOT.glob("*/*")
+        if path.is_dir()
+    }
+    if actual_terraform_roots != APPROVED_TERRAFORM_ROOTS:
+        failures.append(
+            "Terraform roots must be exactly the approved GKE and Cloud Run roots/modules: "
+            f"{sorted(actual_terraform_roots)}"
+        )
+
     for path in files:
         rel = path.relative_to(ROOT).as_posix()
-        if rel.endswith(forbidden_suffixes) or ".tfstate." in rel or rel.endswith(".auto.tfvars"):
+        if rel.startswith(FORBIDDEN_PATH_PREFIXES):
+            failures.append(f"forbidden authority path: {rel}")
+        if (
+            rel.endswith((".tfstate", ".tfplan", ".plan", ".pem", ".key", ".p12"))
+            or ".tfstate." in rel
+            or rel.endswith(".auto.tfvars")
+        ):
             failures.append(f"tracked sensitive artifact: {rel}")
         if rel.endswith(".tfvars") and not rel.endswith(".example.tfvars"):
             failures.append(f"tracked non-example tfvars: {rel}")
-
-    for path in text_files():
-        rel = path.relative_to(ROOT).as_posix()
-        text = path.read_text(encoding="utf-8")
+        if path.name == "LICENSE":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, IsADirectoryError):
+            continue
         for label, pattern in PRIVATE_PATTERNS.items():
             if pattern.search(text):
                 failures.append(f"{rel}: {label}")
 
     terraform_text = "\n".join(path.read_text() for path in TF_ROOT.rglob("*.tf"))
     if terraform_text.count('resource "google_container_cluster" "this"') != 1:
-        failures.append("Terraform must contain exactly one google_container_cluster.this resource")
+        failures.append("must contain exactly one Autopilot cluster resource")
+    if terraform_text.count('resource "google_cloud_run_v2_service" "this"') != 1:
+        failures.append("must contain exactly one reusable Cloud Run service resource")
     for fragment in FORBIDDEN_TERRAFORM:
         if fragment in terraform_text:
             failures.append(f"forbidden Terraform authority: {fragment}")
 
-    module = (MODULE_ROOT / "main.tf").read_text()
+    gke = (GKE_MODULE / "main.tf").read_text()
     for required in (
         "enable_autopilot = true",
         "deletion_protection = true",
@@ -112,43 +132,82 @@ def main() -> int:
         "subnetwork       = var.subnetwork",
         "channel = var.release_channel",
     ):
-        if required not in module:
-            failures.append(f"module invariant missing: {required}")
+        if required not in gke:
+            failures.append(f"GKE invariant missing: {required}")
 
-    versions = (ENV_ROOT / "versions.tf").read_text()
-    if 'backend "gcs" {}' not in versions:
-        failures.append("environment backend must remain an empty externally configured gcs block")
-    if re.search(r"\b(bucket|prefix)\s*=", versions):
-        failures.append("backend coordinates must not be committed")
-    if "access_token" in versions:
-        failures.append("explicit provider access-token transport is forbidden")
+    run_main = (RUN_MODULE / "main.tf").read_text()
+    for required in (
+        "google_cloud_run_v2_service",
+        "deletion_protection = var.deletion_protection",
+        "@sha256:[0-9a-f]{64}$",
+        "startup_probe",
+        "liveness_probe",
+    ):
+        if required not in run_main:
+            failures.append(f"Cloud Run invariant missing: {required}")
 
-    lockfile = ENV_ROOT / ".terraform.lock.hcl"
-    lock_text = lockfile.read_text() if lockfile.is_file() else ""
-    if 'version     = "7.31.0"' not in lock_text:
-        failures.append("provider lockfile missing or not pinned to 7.31.0")
-    if '"h1:' not in lock_text or lock_text.count('"zh:') < 2:
-        failures.append("provider lockfile must contain the complete generated checksum set")
+    run_vars = (RUN_MODULE / "variables.tf").read_text()
+    for required in (
+        "INGRESS_TRAFFIC_INTERNAL_ONLY",
+        "K_SERVICE",
+        "K_REVISION",
+        "K_CONFIGURATION",
+        "PORT",
+        "max_instances",
+        "cpu",
+        "memory",
+    ):
+        if required not in run_vars:
+            failures.append(f"Cloud Run input invariant missing: {required}")
 
-    workflow_root = ROOT / ".github" / "workflows"
-    for path in workflow_root.glob("*.yml"):
-        text = path.read_text()
-        for fragment in FORBIDDEN_CI:
-            if fragment in text:
-                failures.append(f"{path.relative_to(ROOT)}: forbidden CI authority {fragment!r}")
+    gke_versions = (GKE_ENV / "versions.tf").read_text()
+    if 'backend "gcs" {}' not in gke_versions or re.search(
+        r"\b(bucket|prefix)\s*=", gke_versions
+    ):
+        failures.append("GKE backend must remain externally configured without coordinates")
 
-    required_workflow = workflow_root / "required.yml"
-    required_text = required_workflow.read_text() if required_workflow.is_file() else ""
-    if "-backend=false" not in required_text or "-lockfile=readonly" not in required_text:
-        failures.append("required CI must initialize with backend disabled and committed lock readonly")
+    run_versions = (RUN_ENV / "versions.tf").read_text()
+    if 'backend "' in run_versions:
+        failures.append("Cloud Run example must not bind a remote backend")
+
+    for env in (GKE_ENV, RUN_ENV):
+        lock = (env / ".terraform.lock.hcl").read_text()
+        if (
+            'version     = "7.31.0"' not in lock
+            or '"h1:' not in lock
+            or lock.count('"zh:') < 2
+        ):
+            failures.append(f"{env.relative_to(ROOT)}: incomplete provider lock")
+
+    workflow = (ROOT / ".github" / "workflows" / "required.yml").read_text()
+    for fragment in FORBIDDEN_CI:
+        if fragment in workflow:
+            failures.append(f"required CI contains forbidden authority {fragment!r}")
+    for env_name in ("gke-autopilot", "cloud-run-service-example"):
+        needle = (
+            f"terraform/environments/{env_name} init "
+            "-backend=false -input=false -lockfile=readonly"
+        )
+        if needle not in workflow:
+            failures.append(f"required CI missing readonly offline init for {env_name}")
+    if (
+        "terraform/modules/cloud-run-service init -backend=false -input=false"
+        not in workflow
+    ):
+        failures.append("required CI missing credential-free Cloud Run module init")
+    if "terraform/modules/cloud-run-service test -no-color" not in workflow:
+        failures.append("required CI missing Cloud Run module-native test lane")
 
     if failures:
-        print("Phase-1 infrastructure policy FAILED")
+        print("Infrastructure policy FAILED")
         for failure in failures:
             print(f"- {failure}")
         return 1
 
-    print("Phase-1 infrastructure policy passed: desired-state only; no live Project 03 authority")
+    print(
+        "Infrastructure policy passed: reusable desired state only; "
+        "Reference Platform remains live Project 03 authority"
+    )
     return 0
 
 
