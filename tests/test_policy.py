@@ -72,11 +72,13 @@ class InfrastructurePolicyTests(unittest.TestCase):
         self.assertNotIn("workload_identity_pool", text)
 
     def test_private_workflow_carries_no_project03_probe_topology(self) -> None:
-        roots = [
-            ROOT / "terraform/modules/private-cloud-run-workflow",
-            ROOT / "terraform/environments/private-cloud-run-workflow-example",
-        ]
-        text = "\n".join(path.read_text() for root in roots for path in root.rglob("*") if path.is_file())
+        prefixes = (
+            "terraform/modules/private-cloud-run-workflow/",
+            "terraform/environments/private-cloud-run-workflow-example/",
+        )
+        tracked = subprocess.check_output(["git", "ls-files"], cwd=ROOT, text=True).splitlines()
+        paths = [ROOT / path for path in tracked if path.startswith(prefixes)]
+        text = "\n".join(path.read_text(encoding="utf-8") for path in paths)
         for forbidden in ("evidence-api", "edge-agent", "web-ui", "/readyz", "/health", "token.actions.githubusercontent.com"):
             self.assertNotIn(forbidden, text)
 
