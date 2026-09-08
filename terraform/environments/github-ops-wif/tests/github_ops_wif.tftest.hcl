@@ -1,5 +1,13 @@
 mock_provider "google" {}
 
+override_resource {
+  target          = google_iam_workload_identity_pool.github
+  override_during = plan
+  values = {
+    name = "projects/example-wif-project/locations/global/workloadIdentityPools/example-github-pool"
+  }
+}
+
 variables {
   project_id                   = "example-wif-12345"
   service_account_id           = "example-ops"
@@ -78,6 +86,11 @@ run "plans_minimal_wif_provisioning" {
   assert {
     condition     = google_service_account_iam_member.github_impersonation.role == "roles/iam.workloadIdentityUser"
     error_message = "Repository impersonation must use the workloadIdentityUser role."
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.github_impersonation.member == "principalSet://iam.googleapis.com/projects/example-wif-project/locations/global/workloadIdentityPools/example-github-pool/attribute.repository_id/123456789"
+    error_message = "Repository impersonation must derive its principalSet from the planned generic pool identity and trusted repository ID."
   }
 
   assert {
