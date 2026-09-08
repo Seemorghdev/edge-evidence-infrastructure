@@ -10,11 +10,7 @@ override_resource {
 override_resource {
   target = google_service_account.ops
   values = {
-    name = join("", [
-      "projects/example-wif-12345/serviceAccounts/example-ops@",
-      "example-wif-12345",
-      ".iam.gserviceaccount.com",
-    ])
+    name = "projects/example-wif-12345/serviceAccounts/example-ops\u0040example-wif-12345.iam.gserviceaccount.com"
   }
 }
 
