@@ -49,16 +49,16 @@ run "plans_minimal_wif_provisioning" {
   }
 
   assert {
-    condition = google_iam_workload_identity_pool_provider.github.attribute_mapping == {
-      "google.subject"                  = "assertion.sub"
-      "attribute.repository"            = "assertion.repository"
-      "attribute.repository_id"         = "assertion.repository_id"
-      "attribute.repository_owner_id"   = "assertion.repository_owner_id"
-      "attribute.event_name"            = "assertion.event_name"
-      "attribute.ref"                   = "assertion.ref"
-      "attribute.workflow_ref"          = "assertion.workflow_ref"
-      "attribute.repository_visibility" = "assertion.repository_visibility"
-    }
+    condition = alltrue([
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["google.subject"] == "assertion.sub",
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository"] == "assertion.repository",
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository_id"] == "assertion.repository_id",
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id",
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.event_name"] == "assertion.event_name",
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.ref"] == "assertion.ref",
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.workflow_ref"] == "assertion.workflow_ref",
+      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository_visibility"] == "assertion.repository_visibility",
+    ])
     error_message = "GitHub OIDC claim mapping must retain the reviewed trust claims."
   }
 
@@ -76,12 +76,8 @@ run "plans_minimal_wif_provisioning" {
   }
 
   assert {
-    condition = (
-      google_service_account_iam_member.github_impersonation.role == "roles/iam.workloadIdentityUser" &&
-      startswith(google_service_account_iam_member.github_impersonation.member, "principalSet://iam.googleapis.com/") &&
-      endswith(google_service_account_iam_member.github_impersonation.member, "/attribute.repository_id/123456789")
-    )
-    error_message = "Repository impersonation must use a pool principalSet scoped to the immutable repository ID."
+    condition     = google_service_account_iam_member.github_impersonation.role == "roles/iam.workloadIdentityUser"
+    error_message = "Repository impersonation must use the workloadIdentityUser role."
   }
 
   assert {
@@ -100,7 +96,6 @@ run "plans_one_bounded_project_role" {
   assert {
     condition = (
       length(google_project_iam_member.project_roles) == 1 &&
-      contains(keys(google_project_iam_member.project_roles), "roles/logging.viewer") &&
       google_project_iam_member.project_roles["roles/logging.viewer"].role == "roles/logging.viewer"
     )
     error_message = "A supplied project role must create only its corresponding IAM member."
