@@ -8,14 +8,14 @@ override_resource {
 }
 
 variables {
-  project_id                           = "example-workflow-12345"
-  region                               = "europe-west1"
-  workflow_name                        = "example-private-workflow"
-  workflow_description                 = "Synthetic workflow resource for offline infrastructure review."
-  workflow_service_account_id          = "example-workflow"
+  project_id                            = "example-workflow-12345"
+  region                                = "europe-west1"
+  workflow_name                         = "example-private-workflow"
+  workflow_description                  = "Synthetic workflow resource for offline infrastructure review."
+  workflow_service_account_id           = "example-workflow"
   workflow_service_account_display_name = "Example private workflow"
-  workflow_service_account_description = "Synthetic workflow identity for offline infrastructure review."
-  workflow_source_contents             = <<-YAML
+  workflow_service_account_description  = "Synthetic workflow identity for offline infrastructure review."
+  workflow_source_contents              = <<-YAML
     main:
       steps:
         - done:
@@ -105,46 +105,71 @@ run "allows_empty_target_set" {
 
 run "rejects_malformed_project" {
   command = plan
-  variables { project_id = "BAD" }
+
+  variables {
+    project_id = "BAD"
+  }
+
   expect_failures = [var.project_id]
 }
 
 run "rejects_malformed_region" {
   command = plan
-  variables { region = "west" }
+
+  variables {
+    region = "west"
+  }
+
   expect_failures = [var.region]
 }
 
 run "rejects_malformed_workflow_name" {
   command = plan
-  variables { workflow_name = "Bad Workflow" }
+
+  variables {
+    workflow_name = "Bad Workflow"
+  }
+
   expect_failures = [var.workflow_name]
 }
 
 run "rejects_malformed_service_account" {
   command = plan
-  variables { workflow_service_account_id = "x" }
+
+  variables {
+    workflow_service_account_id = "x"
+  }
+
   expect_failures = [var.workflow_service_account_id]
 }
 
 run "rejects_empty_workflow_source" {
   command = plan
-  variables { workflow_source_contents = "   " }
+
+  variables {
+    workflow_source_contents = "   "
+  }
+
   expect_failures = [var.workflow_source_contents]
 }
 
 run "rejects_malformed_target" {
   command = plan
+
   variables {
     cloud_run_targets = {
-      bad = { name = "Bad Service" }
+      bad = {
+        name = "Bad Service"
+      }
     }
   }
+
   expect_failures = [var.cloud_run_targets]
 }
 
 run "rejects_malformed_target_location" {
   command = plan
+
   variables {
     cloud_run_targets = {
       bad = {
@@ -153,5 +178,6 @@ run "rejects_malformed_target_location" {
       }
     }
   }
+
   expect_failures = [var.cloud_run_targets]
 }
