@@ -24,13 +24,13 @@ run "plans_minimal_wif_provisioning" {
   }
 
   assert {
-    condition = setequals(toset(keys(google_project_service.bootstrap)), toset([
+    condition = toset(keys(google_project_service.bootstrap)) == toset([
       "cloudresourcemanager.googleapis.com",
       "iam.googleapis.com",
       "iamcredentials.googleapis.com",
       "serviceusage.googleapis.com",
       "sts.googleapis.com",
-    ]))
+    ])
     error_message = "Bootstrap API inventory must match the reviewed WIF provisioning set."
   }
 
