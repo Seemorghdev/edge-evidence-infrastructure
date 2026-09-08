@@ -16,18 +16,18 @@ mock_provider "google" {
 }
 
 variables {
-  project_id                    = "example-wif-12345"
-  service_account_id            = "example-ops"
-  service_account_display_name  = "Example GitHub operations"
-  pool_id                       = "example-github-pool"
-  provider_id                   = "example-github-provider"
-  trusted_repository            = "example-org/example-repo"
-  trusted_repository_id         = "123456789"
-  trusted_repository_owner_id   = "987654321"
-  trusted_workflow_ref          = "example-org/example-repo/.github/workflows/ops.yml@refs/heads/review"
-  trusted_ref                   = "refs/heads/review"
-  trusted_event                 = "workflow_dispatch"
-  trusted_visibility            = "private"
+  project_id                   = "example-wif-12345"
+  service_account_id           = "example-ops"
+  service_account_display_name = "Example GitHub operations"
+  pool_id                      = "example-github-pool"
+  provider_id                  = "example-github-provider"
+  trusted_repository           = "example-org/example-repo"
+  trusted_repository_id        = "123456789"
+  trusted_repository_owner_id  = "987654321"
+  trusted_workflow_ref         = "example-org/example-repo/.github/workflows/ops.yml@refs/heads/review"
+  trusted_ref                  = "refs/heads/review"
+  trusted_event                = "workflow_dispatch"
+  trusted_visibility           = "private"
 }
 
 run "plans_minimal_wif_provisioning" {
@@ -123,42 +123,70 @@ run "plans_one_bounded_project_role" {
 
 run "rejects_malformed_repository" {
   command = plan
-  variables { trusted_repository = "example-org" }
+
+  variables {
+    trusted_repository = "example-org"
+  }
+
   expect_failures = [var.trusted_repository]
 }
 
 run "rejects_malformed_repository_id" {
   command = plan
-  variables { trusted_repository_id = "not-numeric" }
+
+  variables {
+    trusted_repository_id = "not-numeric"
+  }
+
   expect_failures = [var.trusted_repository_id]
 }
 
 run "rejects_malformed_owner_id" {
   command = plan
-  variables { trusted_repository_owner_id = "0" }
+
+  variables {
+    trusted_repository_owner_id = "0"
+  }
+
   expect_failures = [var.trusted_repository_owner_id]
 }
 
 run "rejects_malformed_workflow_ref" {
   command = plan
-  variables { trusted_workflow_ref = "example-org/example-repo/.github/workflows/ops.yml" }
+
+  variables {
+    trusted_workflow_ref = "example-org/example-repo/.github/workflows/ops.yml"
+  }
+
   expect_failures = [var.trusted_workflow_ref]
 }
 
 run "rejects_malformed_ref" {
   command = plan
-  variables { trusted_ref = "main" }
+
+  variables {
+    trusted_ref = "main"
+  }
+
   expect_failures = [var.trusted_ref]
 }
 
 run "rejects_unreviewed_event" {
   command = plan
-  variables { trusted_event = "pull_request" }
+
+  variables {
+    trusted_event = "pull_request"
+  }
+
   expect_failures = [var.trusted_event]
 }
 
 run "rejects_invalid_visibility" {
   command = plan
-  variables { trusted_visibility = "secret" }
+
+  variables {
+    trusted_visibility = "secret"
+  }
+
   expect_failures = [var.trusted_visibility]
 }
