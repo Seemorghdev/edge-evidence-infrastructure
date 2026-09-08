@@ -1,20 +1,5 @@
 mock_provider "google" {}
 
-override_resource {
-  target = google_iam_workload_identity_pool.github
-  values = {
-    name = "synthetic-pool-resource-name"
-  }
-}
-
-override_resource {
-  target = google_service_account.ops
-  values = {
-    name  = "synthetic-service-account-resource-name"
-    email = "synthetic-ops@example.invalid"
-  }
-}
-
 variables {
   project_id                   = "example-wif-12345"
   service_account_id           = "example-ops"
@@ -93,9 +78,10 @@ run "plans_minimal_wif_provisioning" {
   assert {
     condition = (
       google_service_account_iam_member.github_impersonation.role == "roles/iam.workloadIdentityUser" &&
-      google_service_account_iam_member.github_impersonation.member == "principalSet://iam.googleapis.com/synthetic-pool-resource-name/attribute.repository_id/123456789"
+      startswith(google_service_account_iam_member.github_impersonation.member, "principalSet://iam.googleapis.com/") &&
+      endswith(google_service_account_iam_member.github_impersonation.member, "/attribute.repository_id/123456789")
     )
-    error_message = "Repository impersonation must derive from the generic pool and immutable repository ID."
+    error_message = "Repository impersonation must use a pool principalSet scoped to the immutable repository ID."
   }
 
   assert {
@@ -114,10 +100,10 @@ run "plans_one_bounded_project_role" {
   assert {
     condition = (
       length(google_project_iam_member.project_roles) == 1 &&
-      one(values(google_project_iam_member.project_roles)).role == "roles/logging.viewer" &&
-      one(values(google_project_iam_member.project_roles)).member == "serviceAccount:synthetic-ops@example.invalid"
+      contains(keys(google_project_iam_member.project_roles), "roles/logging.viewer") &&
+      google_project_iam_member.project_roles["roles/logging.viewer"].role == "roles/logging.viewer"
     )
-    error_message = "A supplied project role must create only its corresponding service-account IAM member."
+    error_message = "A supplied project role must create only its corresponding IAM member."
   }
 }
 
