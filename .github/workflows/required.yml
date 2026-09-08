@@ -67,6 +67,8 @@ jobs:
         run: |
           terraform -chdir=terraform/modules/private-cloud-run-workflow validate
           terraform -chdir=terraform/modules/private-cloud-run-workflow test -no-color
+      - name: Pinned Terraform completion audit
+        run: python scripts/check_terraform_completion.py
       - name: Authority and publication policy
         run: python scripts/check_policy.py
       - name: Repository tests

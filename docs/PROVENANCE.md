@@ -25,3 +25,13 @@ The source workflow's `deletion_protection = false` is retained as a copy-first 
 Live Terraform state/backend bindings, accepted operational evidence, runbooks, current WIF trust/consumption, current workflow execution/control semantics, application manifests, the three-service Reference Platform topology, retained address evidence, and Project 03 execution authority are not copied.
 
 The Reference Platform remains the current live Project 03 authority, including for the existing external address, current private workflow/application behavior, and current GitHub WIF/trust relationships. This repository defines reusable desired state only; repository approval grants no provider execution, workflow execution, state-adoption, trust-consumption, trust-migration, or authority-cutover permission.
+
+## Phase 6 literal full-tree completion audit
+
+Phase 6 audits the complete pinned `terraform/**` subtree at source SHA `403ee070fcf31120c3f715bc32bb1643b428f7d2`, Terraform tree SHA `74073fec6df9f3324313fc60739d77762c4ed4de`, using the required order `LITERAL FILE/DIRECTORY TRANSFER → DELETE → MOVE/RENAME → PARAMETERIZE → SANITIZE → TEST`.
+
+Before any public commit, all 39 pinned Terraform files were physically materialized in temporary worker storage outside the Infrastructure Git worktree. Each staged byte stream reproduced its pinned source Git blob SHA. The sorted source-path/blob inventory digest is `708a3f27625efb6eb319750d1fae8b5207cf2ca7b06b68b50f50fd36a9356008`.
+
+The exhaustive audit found no additional standalone desired-state product beyond accepted Phase 1 / PR #8, Phase 2 / PR #12, Phase 3 / PR #13, Phase 4 / PR #15, and Phase 5 / PR #17. Consequently Phase 6 retains zero new literal or minimally modified Terraform source files. Every pinned source path is classified exactly once in `docs/terraform-completion-manifest.json`; the remaining source bytes are explicitly deleted as application-owned, Operations-owned, live authority/state/backend material, or duplicate/superseded wrappers.
+
+No unsanitized source Terraform file entered public Git history. Phase 6 adds only the sanitized manifest, independent completion checker/tests, CI gate, and completion documentation. It performs no live Terraform plan/apply/import/destroy, provider authentication, GCP read/write, backend/state migration or adoption, WIF consumption/cutover, workflow execution, Kubernetes work, DNS/TLS work, source deletion, or authority cutover.
