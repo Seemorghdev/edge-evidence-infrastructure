@@ -16,8 +16,10 @@ class InfrastructurePolicyTests(unittest.TestCase):
             "terraform/environments/github-ops-wif",
             "terraform/environments/gke-autopilot",
             "terraform/environments/gke-exposure-address",
+            "terraform/environments/private-cloud-run-workflow-example",
             "terraform/modules/cloud-run-service",
             "terraform/modules/gke-autopilot-cluster",
+            "terraform/modules/private-cloud-run-workflow",
         ])
 
     def test_reference_platform_remains_declared_live_authority(self) -> None:
@@ -53,6 +55,30 @@ class InfrastructurePolicyTests(unittest.TestCase):
             'member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository_id/${var.trusted_repository_id}"',
             main,
         )
+
+    def test_private_workflow_module_contains_only_provisioning_substrate(self) -> None:
+        root = ROOT / "terraform/modules/private-cloud-run-workflow"
+        text = "\n".join(path.read_text() for path in root.glob("*.tf"))
+        resources = set(re.findall(r'resource\s+"([^"]+)"\s+"([^"]+)"', text))
+        self.assertEqual(resources, {
+            ("google_service_account", "workflow"),
+            ("google_workflows_workflow", "this"),
+            ("google_cloud_run_v2_service_iam_member", "workflow_invoker"),
+        })
+        self.assertIn('role     = "roles/run.invoker"', text)
+        self.assertIn("source_contents         = var.workflow_source_contents", text)
+        self.assertNotIn('data "google_cloud_run_v2_service"', text)
+        self.assertNotIn("templatefile(", text)
+        self.assertNotIn("workload_identity_pool", text)
+
+    def test_private_workflow_carries_no_project03_probe_topology(self) -> None:
+        roots = [
+            ROOT / "terraform/modules/private-cloud-run-workflow",
+            ROOT / "terraform/environments/private-cloud-run-workflow-example",
+        ]
+        text = "\n".join(path.read_text() for root in roots for path in root.rglob("*") if path.is_file())
+        for forbidden in ("evidence-api", "edge-agent", "web-ui", "/readyz", "/health", "token.actions.githubusercontent.com"):
+            self.assertNotIn(forbidden, text)
 
 if __name__ == "__main__":
     unittest.main()
