@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ class InfrastructurePolicyTests(unittest.TestCase):
         roots = sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "terraform").glob("*/*") if path.is_dir())
         self.assertEqual(roots, [
             "terraform/environments/cloud-run-service-example",
+            "terraform/environments/github-ops-wif",
             "terraform/environments/gke-autopilot",
             "terraform/environments/gke-exposure-address",
             "terraform/modules/cloud-run-service",
@@ -29,6 +31,21 @@ class InfrastructurePolicyTests(unittest.TestCase):
         self.assertIn('address_type = "EXTERNAL"', address_main)
         self.assertIn('ip_version   = "IPV4"', address_main)
         self.assertIn("prevent_destroy = true", address_main)
+
+    def test_wif_root_contains_only_reviewed_provisioning_resources(self) -> None:
+        wif_root = ROOT / "terraform/environments/github-ops-wif"
+        text = "\n".join(path.read_text() for path in wif_root.glob("*.tf"))
+        resources = set(re.findall(r'resource\s+"([^"]+)"\s+"([^"]+)"', text))
+        self.assertEqual(resources, {
+            ("google_project_service", "bootstrap"),
+            ("google_service_account", "ops"),
+            ("google_iam_workload_identity_pool", "github"),
+            ("google_iam_workload_identity_pool_provider", "github"),
+            ("google_service_account_iam_member", "github_impersonation"),
+            ("google_project_iam_member", "project_roles"),
+        })
+        self.assertNotIn("access_token", text)
+        self.assertNotIn("impersonate_service_account", text)
 
 if __name__ == "__main__":
     unittest.main()
