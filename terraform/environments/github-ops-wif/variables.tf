@@ -37,7 +37,7 @@ variable "service_account_description" {
   default     = null
 
   validation {
-    condition     = var.service_account_description == null || length(var.service_account_description) <= 256
+    condition     = var.service_account_description == null ? true : length(var.service_account_description) <= 256
     error_message = "service_account_description must be null or at most 256 characters."
   }
 }
