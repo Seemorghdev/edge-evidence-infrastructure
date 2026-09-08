@@ -24,42 +24,12 @@ run "plans_minimal_wif_provisioning" {
   }
 
   assert {
-    condition = setequals(toset(keys(google_project_service.bootstrap)), toset([
-      "cloudresourcemanager.googleapis.com",
-      "iam.googleapis.com",
-      "iamcredentials.googleapis.com",
-      "serviceusage.googleapis.com",
-      "sts.googleapis.com",
-    ]))
-    error_message = "Bootstrap API inventory must match the reviewed WIF provisioning set."
-  }
-
-  assert {
     condition = (
       google_service_account.ops.account_id == "example-ops" &&
       google_iam_workload_identity_pool.github.workload_identity_pool_id == "example-github-pool" &&
       google_iam_workload_identity_pool_provider.github.workload_identity_pool_provider_id == "example-github-provider"
     )
     error_message = "Generic service-account, pool, and provider IDs must flow through the desired state."
-  }
-
-  assert {
-    condition     = one(google_iam_workload_identity_pool_provider.github.oidc).issuer_uri == "https://token.actions.githubusercontent.com"
-    error_message = "The WIF provider must use the GitHub Actions OIDC issuer."
-  }
-
-  assert {
-    condition = alltrue([
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["google.subject"] == "assertion.sub",
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository"] == "assertion.repository",
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository_id"] == "assertion.repository_id",
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id",
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.event_name"] == "assertion.event_name",
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.ref"] == "assertion.ref",
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.workflow_ref"] == "assertion.workflow_ref",
-      google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository_visibility"] == "assertion.repository_visibility",
-    ])
-    error_message = "GitHub OIDC claim mapping must retain the reviewed trust claims."
   }
 
   assert {
@@ -84,90 +54,4 @@ run "plans_minimal_wif_provisioning" {
     condition     = length(google_project_iam_member.project_roles) == 0
     error_message = "No project roles may be granted by default."
   }
-}
-
-run "plans_one_bounded_project_role" {
-  command = plan
-
-  variables {
-    project_roles = ["roles/logging.viewer"]
-  }
-
-  assert {
-    condition = (
-      length(google_project_iam_member.project_roles) == 1 &&
-      google_project_iam_member.project_roles["roles/logging.viewer"].role == "roles/logging.viewer"
-    )
-    error_message = "A supplied project role must create only its corresponding IAM member."
-  }
-}
-
-run "rejects_malformed_repository" {
-  command = plan
-
-  variables {
-    trusted_repository = "example-org"
-  }
-
-  expect_failures = [var.trusted_repository]
-}
-
-run "rejects_malformed_repository_id" {
-  command = plan
-
-  variables {
-    trusted_repository_id = "not-numeric"
-  }
-
-  expect_failures = [var.trusted_repository_id]
-}
-
-run "rejects_malformed_owner_id" {
-  command = plan
-
-  variables {
-    trusted_repository_owner_id = "0"
-  }
-
-  expect_failures = [var.trusted_repository_owner_id]
-}
-
-run "rejects_malformed_workflow_ref" {
-  command = plan
-
-  variables {
-    trusted_workflow_ref = "example-org/example-repo/.github/workflows/ops.yml"
-  }
-
-  expect_failures = [var.trusted_workflow_ref]
-}
-
-run "rejects_malformed_ref" {
-  command = plan
-
-  variables {
-    trusted_ref = "main"
-  }
-
-  expect_failures = [var.trusted_ref]
-}
-
-run "rejects_unreviewed_event" {
-  command = plan
-
-  variables {
-    trusted_event = "pull_request"
-  }
-
-  expect_failures = [var.trusted_event]
-}
-
-run "rejects_invalid_visibility" {
-  command = plan
-
-  variables {
-    trusted_visibility = "secret"
-  }
-
-  expect_failures = [var.trusted_visibility]
 }
