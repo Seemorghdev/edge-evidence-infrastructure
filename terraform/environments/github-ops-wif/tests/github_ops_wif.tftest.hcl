@@ -85,3 +85,89 @@ run "plans_minimal_wif_provisioning" {
     error_message = "No project roles may be granted by default."
   }
 }
+
+run "plans_one_bounded_project_role" {
+  command = plan
+
+  variables {
+    project_roles = ["roles/logging.viewer"]
+  }
+
+  assert {
+    condition = (
+      length(google_project_iam_member.project_roles) == 1 &&
+      google_project_iam_member.project_roles["roles/logging.viewer"].role == "roles/logging.viewer"
+    )
+    error_message = "A supplied project role must create only its corresponding IAM member."
+  }
+}
+
+run "rejects_malformed_repository" {
+  command = plan
+
+  variables {
+    trusted_repository = "example-org"
+  }
+
+  expect_failures = [var.trusted_repository]
+}
+
+run "rejects_malformed_repository_id" {
+  command = plan
+
+  variables {
+    trusted_repository_id = "not-numeric"
+  }
+
+  expect_failures = [var.trusted_repository_id]
+}
+
+run "rejects_malformed_owner_id" {
+  command = plan
+
+  variables {
+    trusted_repository_owner_id = "0"
+  }
+
+  expect_failures = [var.trusted_repository_owner_id]
+}
+
+run "rejects_malformed_workflow_ref" {
+  command = plan
+
+  variables {
+    trusted_workflow_ref = "example-org/example-repo/.github/workflows/ops.yml"
+  }
+
+  expect_failures = [var.trusted_workflow_ref]
+}
+
+run "rejects_malformed_ref" {
+  command = plan
+
+  variables {
+    trusted_ref = "main"
+  }
+
+  expect_failures = [var.trusted_ref]
+}
+
+run "rejects_unreviewed_event" {
+  command = plan
+
+  variables {
+    trusted_event = "pull_request"
+  }
+
+  expect_failures = [var.trusted_event]
+}
+
+run "rejects_invalid_visibility" {
+  command = plan
+
+  variables {
+    trusted_visibility = "secret"
+  }
+
+  expect_failures = [var.trusted_visibility]
+}
