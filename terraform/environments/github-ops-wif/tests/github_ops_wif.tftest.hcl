@@ -1,17 +1,17 @@
-mock_provider "google" {
-  override_resource {
-    target = google_iam_workload_identity_pool.github
-    values = {
-      name = "synthetic-pool-resource-name"
-    }
-  }
+mock_provider "google" {}
 
-  override_resource {
-    target = google_service_account.ops
-    values = {
-      name  = "synthetic-service-account-resource-name"
-      email = "synthetic-ops@example.invalid"
-    }
+override_resource {
+  target = google_iam_workload_identity_pool.github
+  values = {
+    name = "synthetic-pool-resource-name"
+  }
+}
+
+override_resource {
+  target = google_service_account.ops
+  values = {
+    name  = "synthetic-service-account-resource-name"
+    email = "synthetic-ops@example.invalid"
   }
 }
 
