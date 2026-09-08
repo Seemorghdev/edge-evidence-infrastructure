@@ -11,7 +11,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -69,6 +69,8 @@ jobs:
         run: |
           terraform -chdir=terraform/modules/private-cloud-run-workflow validate
           terraform -chdir=terraform/modules/private-cloud-run-workflow test -no-color
+      - name: Source-derived heavy Terraform validation
+        run: bash scripts/run_heavy_validation.sh terraform
       - name: Pinned Terraform completion audit
         run: python scripts/check_terraform_completion.py
       - name: Repository-wide Infrastructure manifest

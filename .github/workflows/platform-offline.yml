@@ -13,6 +13,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-derived-kubernetes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Source-derived Helm and Kustomize validation
+        run: bash scripts/run_heavy_validation.sh kubernetes
+
   platform-state:
     runs-on: ubuntu-latest
     timeout-minutes: 10
