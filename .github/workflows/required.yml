@@ -49,12 +49,24 @@ jobs:
         run: terraform -chdir=terraform/environments/github-ops-wif validate
       - name: Test GitHub WIF provisioning
         run: terraform -chdir=terraform/environments/github-ops-wif test -no-color
+      - name: Initialize private Cloud Run workflow example offline
+        run: terraform -chdir=terraform/environments/private-cloud-run-workflow-example init -backend=false -input=false -lockfile=readonly
+      - name: Validate and test private Cloud Run workflow example
+        run: |
+          terraform -chdir=terraform/environments/private-cloud-run-workflow-example validate
+          terraform -chdir=terraform/environments/private-cloud-run-workflow-example test -no-color
       - name: Initialize Cloud Run module credential-free
         run: terraform -chdir=terraform/modules/cloud-run-service init -backend=false -input=false
       - name: Validate and test Cloud Run module
         run: |
           terraform -chdir=terraform/modules/cloud-run-service validate
           terraform -chdir=terraform/modules/cloud-run-service test -no-color
+      - name: Initialize private Cloud Run workflow module credential-free
+        run: terraform -chdir=terraform/modules/private-cloud-run-workflow init -backend=false -input=false
+      - name: Validate and test private Cloud Run workflow module
+        run: |
+          terraform -chdir=terraform/modules/private-cloud-run-workflow validate
+          terraform -chdir=terraform/modules/private-cloud-run-workflow test -no-color
       - name: Authority and publication policy
         run: python scripts/check_policy.py
       - name: Repository tests
