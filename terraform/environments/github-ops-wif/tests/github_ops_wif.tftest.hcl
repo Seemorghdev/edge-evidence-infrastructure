@@ -1,8 +1,9 @@
-mock_provider "google" {
-  mock_resource "google_iam_workload_identity_pool" {
-    defaults = {
-      name = "projects/example-wif-project/locations/global/workloadIdentityPools/example-github-pool"
-    }
+mock_provider "google" {}
+
+override_resource {
+  target = google_iam_workload_identity_pool.github
+  values = {
+    name = "projects/example-wif-project/locations/global/workloadIdentityPools/example-github-pool"
   }
 }
 
