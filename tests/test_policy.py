@@ -47,5 +47,12 @@ class InfrastructurePolicyTests(unittest.TestCase):
         self.assertNotIn("access_token", text)
         self.assertNotIn("impersonate_service_account", text)
 
+    def test_wif_repository_principal_is_derived_not_literal(self) -> None:
+        main = (ROOT / "terraform/environments/github-ops-wif/main.tf").read_text()
+        self.assertIn(
+            'member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository_id/${var.trusted_repository_id}"',
+            main,
+        )
+
 if __name__ == "__main__":
     unittest.main()
