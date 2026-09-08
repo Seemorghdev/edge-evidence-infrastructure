@@ -15,9 +15,11 @@ GKE_MODULE = TF_ROOT / "modules" / "gke-autopilot-cluster"
 RUN_ENV = TF_ROOT / "environments" / "cloud-run-service-example"
 RUN_MODULE = TF_ROOT / "modules" / "cloud-run-service"
 ADDRESS_ENV = TF_ROOT / "environments" / "gke-exposure-address"
+WIF_ENV = TF_ROOT / "environments" / "github-ops-wif"
 
 APPROVED_TERRAFORM_ROOTS = {
     "terraform/environments/cloud-run-service-example",
+    "terraform/environments/github-ops-wif",
     "terraform/environments/gke-autopilot",
     "terraform/environments/gke-exposure-address",
     "terraform/modules/cloud-run-service",
@@ -30,8 +32,10 @@ FORBIDDEN_PATH_PREFIXES = (
     "terraform/environments/gcp-ops-bridge/",
 )
 
-WIF_COORDINATE = re.compile(
-    "workloadIdentity" + "Pools/|" + "workload" + "_identity_pool",
+CONCRETE_WIF_COORDINATE = re.compile(
+    r"projects/[0-9]+/locations/global/"
+    + "workloadIdentity"
+    + r"Pools/[A-Za-z0-9-]+(?:/providers/[A-Za-z0-9-]+)?",
     re.I,
 )
 IPV4_LITERAL = re.compile(
@@ -47,25 +51,28 @@ PRIVATE_PATTERNS = {
         r"\b[^\s@]+@[^\s@]+\.iam\.gserviceaccount\.com\b",
         re.I,
     ),
-    "WIF provider coordinate": WIF_COORDINATE,
+    "concrete WIF provider coordinate": CONCRETE_WIF_COORDINATE,
     "private registry coordinate": re.compile(r"\.pkg\.dev/", re.I),
     "private key material": re.compile(
         r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
     ),
 }
-FORBIDDEN_TERRAFORM = (
-    'resource "google_project_service"',
+GLOBAL_FORBIDDEN_TERRAFORM = (
     'resource "google_compute_network"',
     'resource "google_compute_subnetwork"',
     'resource "google_container_node_pool"',
-    'resource "google_service_account"',
-    'resource "google_iam_',
-    'resource "google_project_iam',
     'resource "kubernetes_',
     'resource "helm_',
-    "workload" + "_identity_pool",
     "access_token",
     "impersonate_service_account",
+)
+WIF_SCOPED_TERRAFORM = (
+    'resource "google_project_service"',
+    'resource "google_service_account"',
+    'resource "google_service_account_iam',
+    'resource "google_iam_',
+    'resource "google_project_iam',
+    "workload_identity_pool",
 )
 FORBIDDEN_CI = (
     "id-token: write",
@@ -75,11 +82,37 @@ FORBIDDEN_CI = (
     "gcloud ",
     "/gcp-ops",
 )
+EXPECTED_WIF_RESOURCES = {
+    ("google_project_service", "bootstrap"),
+    ("google_service_account", "ops"),
+    ("google_iam_workload_identity_pool", "github"),
+    ("google_iam_workload_identity_pool_provider", "github"),
+    ("google_service_account_iam_member", "github_impersonation"),
+    ("google_project_iam_member", "project_roles"),
+}
+TRUST_INPUTS = (
+    "trusted_repository",
+    "trusted_repository_id",
+    "trusted_repository_owner_id",
+    "trusted_workflow_ref",
+    "trusted_ref",
+    "trusted_event",
+    "trusted_visibility",
+)
 
 
 def tracked_files() -> list[Path]:
     raw = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
     return [ROOT / item.decode() for item in raw.split(b"\0") if item]
+
+
+def variable_block(text: str, name: str) -> str:
+    marker = f'variable "{name}"'
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    next_start = text.find('\nvariable "', start + len(marker))
+    return text[start:] if next_start < 0 else text[start:next_start]
 
 
 def main() -> int:
@@ -93,7 +126,7 @@ def main() -> int:
     }
     if actual_terraform_roots != APPROVED_TERRAFORM_ROOTS:
         failures.append(
-            "Terraform roots must be exactly the approved GKE, Cloud Run, and global-address roots/modules: "
+            "Terraform roots must be exactly the approved GKE, Cloud Run, global-address, and GitHub-WIF roots/modules: "
             f"{sorted(actual_terraform_roots)}"
         )
 
@@ -123,16 +156,24 @@ def main() -> int:
             if address.is_global:
                 failures.append(f"{rel}: globally routable IPv4 literal is forbidden")
 
-    terraform_text = "\n".join(path.read_text() for path in TF_ROOT.rglob("*.tf"))
+    terraform_files = list(TF_ROOT.rglob("*.tf"))
+    terraform_text = "\n".join(path.read_text() for path in terraform_files)
+    non_wif_terraform_text = "\n".join(
+        path.read_text() for path in terraform_files if WIF_ENV not in path.parents
+    )
+
     if terraform_text.count('resource "google_container_cluster" "this"') != 1:
         failures.append("must contain exactly one Autopilot cluster resource")
     if terraform_text.count('resource "google_cloud_run_v2_service" "this"') != 1:
         failures.append("must contain exactly one reusable Cloud Run service resource")
     if terraform_text.count('resource "google_compute_global_address" "this"') != 1:
         failures.append("must contain exactly one reusable global-address resource")
-    for fragment in FORBIDDEN_TERRAFORM:
+    for fragment in GLOBAL_FORBIDDEN_TERRAFORM:
         if fragment in terraform_text:
             failures.append(f"forbidden Terraform authority: {fragment}")
+    for fragment in WIF_SCOPED_TERRAFORM:
+        if fragment in non_wif_terraform_text:
+            failures.append(f"WIF/IAM/API authority is allowed only in github-ops-wif: {fragment}")
 
     gke = (GKE_MODULE / "main.tf").read_text()
     for required in (
@@ -194,10 +235,61 @@ def main() -> int:
     if 'variable "desired_address"' not in address_vars or "default     = null" not in address_vars:
         failures.append("global-address desired_address must remain optional with a null default")
 
-    gke_versions = (GKE_ENV / "versions.tf").read_text()
-    if 'backend "gcs" {}' not in gke_versions or re.search(
-        r"\b(bucket|prefix)\s*=", gke_versions
+    wif_main = (WIF_ENV / "main.tf").read_text()
+    wif_vars = (WIF_ENV / "variables.tf").read_text()
+    wif_tf = "\n".join(path.read_text() for path in WIF_ENV.rglob("*.tf"))
+    actual_wif_resources = set(re.findall(r'resource\s+"([^"]+)"\s+"([^"]+)"', wif_tf))
+    if actual_wif_resources != EXPECTED_WIF_RESOURCES:
+        failures.append(f"github-ops-wif resource inventory drift: {sorted(actual_wif_resources)}")
+    for forbidden in ('data "', 'import {', 'moved {', "access_token", "impersonate_service_account"):
+        if forbidden in wif_tf:
+            failures.append(f"github-ops-wif contains forbidden execution authority: {forbidden}")
+    for required in (
+        "cloudresourcemanager.googleapis.com",
+        "iam.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "serviceusage.googleapis.com",
+        "sts.googleapis.com",
+        'issuer_uri = "https://token.actions.githubusercontent.com"',
+        '"google.subject"                  = "assertion.sub"',
+        '"attribute.repository"            = "assertion.repository"',
+        '"attribute.repository_id"         = "assertion.repository_id"',
+        '"attribute.repository_owner_id"   = "assertion.repository_owner_id"',
+        '"attribute.event_name"            = "assertion.event_name"',
+        '"attribute.ref"                   = "assertion.ref"',
+        '"attribute.workflow_ref"          = "assertion.workflow_ref"',
+        '"attribute.repository_visibility" = "assertion.repository_visibility"',
+        "assertion.repository == '${var.trusted_repository}'",
+        "assertion.repository_id == '${var.trusted_repository_id}'",
+        "assertion.repository_owner_id == '${var.trusted_repository_owner_id}'",
+        "assertion.repository_visibility == '${var.trusted_visibility}'",
+        "assertion.event_name == '${var.trusted_event}'",
+        "assertion.ref == '${var.trusted_ref}'",
+        "assertion.workflow_ref == '${var.trusted_workflow_ref}'",
+        'role               = "roles/iam.workloadIdentityUser"',
+        "/attribute.repository_id/${var.trusted_repository_id}",
+        "for_each = var.project_roles",
     ):
+        if required not in wif_main:
+            failures.append(f"github-ops-wif invariant missing: {required}")
+    literal_roles = set(re.findall(r'"(roles/[A-Za-z0-9_.]+)"', wif_main))
+    if literal_roles != {"roles/iam.workloadIdentityUser"}:
+        failures.append(f"github-ops-wif main.tf must not embed project-role inventory: {sorted(literal_roles)}")
+    for name in TRUST_INPUTS:
+        block = variable_block(wif_vars, name)
+        if not block:
+            failures.append(f"github-ops-wif missing required trust input: {name}")
+            continue
+        if "default" in block:
+            failures.append(f"github-ops-wif trust input must not have a default: {name}")
+        if "nullable    = false" not in block or "validation {" not in block:
+            failures.append(f"github-ops-wif trust input must be non-null and validated: {name}")
+    role_block = variable_block(wif_vars, "project_roles")
+    if "default     = []" not in role_block or "length(var.project_roles) <= 8" not in role_block:
+        failures.append("github-ops-wif project_roles must default empty and remain cardinality-bounded")
+
+    gke_versions = (GKE_ENV / "versions.tf").read_text()
+    if 'backend "gcs" {}' not in gke_versions or re.search(r"\b(bucket|prefix)\s*=", gke_versions):
         failures.append("GKE backend must remain externally configured without coordinates")
 
     run_versions = (RUN_ENV / "versions.tf").read_text()
@@ -205,38 +297,30 @@ def main() -> int:
         failures.append("Cloud Run example must not bind a remote backend")
 
     address_versions = (ADDRESS_ENV / "versions.tf").read_text()
-    if 'backend "gcs" {}' not in address_versions or re.search(
-        r"\b(bucket|prefix)\s*=", address_versions
-    ):
+    if 'backend "gcs" {}' not in address_versions or re.search(r"\b(bucket|prefix)\s*=", address_versions):
         failures.append("global-address backend must remain externally configured without coordinates")
-    for forbidden in ("access_token", "impersonate_service_account"):
-        if forbidden in address_versions:
-            failures.append(f"global-address provider authority is forbidden: {forbidden}")
 
-    for env in (GKE_ENV, RUN_ENV, ADDRESS_ENV):
+    wif_versions = (WIF_ENV / "versions.tf").read_text()
+    if 'backend "gcs" {}' not in wif_versions or re.search(r"\b(bucket|prefix)\s*=", wif_versions):
+        failures.append("github-ops-wif backend must remain externally configured without coordinates")
+    for forbidden in ("access_token", "impersonate_service_account", "credentials"):
+        if forbidden in wif_versions:
+            failures.append(f"github-ops-wif provider authority is forbidden: {forbidden}")
+
+    for env in (GKE_ENV, RUN_ENV, ADDRESS_ENV, WIF_ENV):
         lock = (env / ".terraform.lock.hcl").read_text()
-        if (
-            'version     = "7.31.0"' not in lock
-            or '"h1:' not in lock
-            or lock.count('"zh:') < 2
-        ):
+        if 'version     = "7.31.0"' not in lock or '"h1:' not in lock or lock.count('"zh:') < 2:
             failures.append(f"{env.relative_to(ROOT)}: incomplete provider lock")
 
     workflow = (ROOT / ".github" / "workflows" / "required.yml").read_text()
     for fragment in FORBIDDEN_CI:
         if fragment in workflow:
             failures.append(f"required CI contains forbidden authority {fragment!r}")
-    for env_name in ("gke-autopilot", "cloud-run-service-example", "gke-exposure-address"):
-        needle = (
-            f"terraform/environments/{env_name} init "
-            "-backend=false -input=false -lockfile=readonly"
-        )
+    for env_name in ("gke-autopilot", "cloud-run-service-example", "gke-exposure-address", "github-ops-wif"):
+        needle = f"terraform/environments/{env_name} init -backend=false -input=false -lockfile=readonly"
         if needle not in workflow:
             failures.append(f"required CI missing readonly offline init for {env_name}")
-    if (
-        "terraform/modules/cloud-run-service init -backend=false -input=false"
-        not in workflow
-    ):
+    if "terraform/modules/cloud-run-service init -backend=false -input=false" not in workflow:
         failures.append("required CI missing credential-free Cloud Run module init")
     if "terraform/modules/cloud-run-service test -no-color" not in workflow:
         failures.append("required CI missing Cloud Run module-native test lane")

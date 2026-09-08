@@ -43,6 +43,12 @@ jobs:
         run: |
           terraform -chdir=terraform/environments/gke-exposure-address validate
           terraform -chdir=terraform/environments/gke-exposure-address test -no-color
+      - name: Initialize GitHub WIF provisioning offline
+        run: terraform -chdir=terraform/environments/github-ops-wif init -backend=false -input=false -lockfile=readonly
+      - name: Validate GitHub WIF provisioning
+        run: terraform -chdir=terraform/environments/github-ops-wif validate
+      - name: Test GitHub WIF provisioning
+        run: terraform -chdir=terraform/environments/github-ops-wif test -no-color
       - name: Initialize Cloud Run module credential-free
         run: terraform -chdir=terraform/modules/cloud-run-service init -backend=false -input=false
       - name: Validate and test Cloud Run module
