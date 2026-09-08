@@ -74,6 +74,29 @@ def load(name: str) -> dict:
     return json.loads((ROOT / name).read_text(encoding="utf-8"))
 
 
+def load_manifest_entries(manifest: dict) -> list[dict]:
+    entries: list[dict] = []
+    shards = manifest.get("shards", [])
+    require(bool(shards), "manifest shard inventory missing")
+    seen_paths: set[str] = set()
+    for shard in shards:
+        rel = shard["path"]
+        path = ROOT / rel
+        require(path.is_file(), f"manifest shard missing: {rel}")
+        require(sha256(path) == shard["sha256"], f"manifest shard hash drift: {rel}")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        shard_entries = payload.get("entries", [])
+        require(len(shard_entries) == shard["entry_count"], f"manifest shard count drift: {rel}")
+        require(all(entry.get("family") == shard["family"] for entry in shard_entries), f"manifest shard family drift: {rel}")
+        for entry in shard_entries:
+            source_path = entry["source_path"]
+            require(source_path not in seen_paths, f"manifest source duplicated across shards: {source_path}")
+            seen_paths.add(source_path)
+        entries.extend(shard_entries)
+    require(len(entries) == manifest.get("entry_count"), "manifest index entry count drift")
+    return entries
+
+
 def blob_sha(path: Path) -> str:
     data = path.read_bytes()
     return hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
@@ -92,6 +115,11 @@ def main() -> int:
     snapshot = load("docs/infrastructure-discovery-snapshot.json")
     manifest = load("docs/infrastructure-source-manifest.json")
     terraform = load("docs/terraform-completion-manifest.json")
+
+    require(manifest["source"]["repository"] == SOURCE_REPO, "manifest repository drift")
+    require(manifest["source"]["commit"] == SOURCE_SHA, "manifest source SHA drift")
+    require(manifest["destination"]["baseline_sha"] == DEST_BASE, "manifest destination baseline drift")
+    require(manifest["fresh_physical_staging"]["inventory_sha256"] == FRESH_STAGE, "manifest fresh staging proof drift")
 
     require(snapshot["source_repository"] == SOURCE_REPO, "snapshot repository drift")
     require(snapshot["source_commit"] == SOURCE_SHA, "snapshot source SHA drift")
@@ -126,7 +154,7 @@ def main() -> int:
         require(record["mode"] in {"100644", "100755"}, f"unsupported mode: {record['path']}")
         require(len(record["blob_sha"]) == 40, f"invalid blob SHA: {record['path']}")
 
-    entries = manifest["entries"]
+    entries = load_manifest_entries(manifest)
     by_path = {entry["source_path"]: entry for entry in entries}
     require(len(entries) == len(by_path) == 78, "manifest must classify 78 unique paths")
     require(set(by_path) == source_paths, "snapshot/manifest path sets differ")
