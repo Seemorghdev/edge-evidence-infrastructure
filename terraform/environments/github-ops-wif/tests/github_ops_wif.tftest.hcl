@@ -88,11 +88,6 @@ run "plans_minimal_wif_provisioning" {
   }
 
   assert {
-    condition     = google_service_account_iam_member.github_impersonation.member == "principalSet://iam.googleapis.com/projects/example-wif-project/locations/global/workloadIdentityPools/example-github-pool/attribute.repository_id/123456789"
-    error_message = "Repository impersonation must derive its principalSet from the planned generic pool identity and trusted repository ID."
-  }
-
-  assert {
     condition     = length(google_project_iam_member.project_roles) == 0
     error_message = "No project roles may be granted by default."
   }
@@ -182,4 +177,16 @@ run "rejects_invalid_visibility" {
   }
 
   expect_failures = [var.trusted_visibility]
+}
+
+# Terraform 1.9 keeps overridden computed values unknown during plan. This
+# mocked apply is provider-isolated and exists only to prove the final principal
+# assembled by the real resource expression; it performs no GCP operation.
+run "proves_repository_principal_derivation" {
+  command = apply
+
+  assert {
+    condition     = google_service_account_iam_member.github_impersonation.member == "principalSet://iam.googleapis.com/projects/example-wif-project/locations/global/workloadIdentityPools/example-github-pool/attribute.repository_id/123456789"
+    error_message = "Repository impersonation must derive its principalSet from the mocked generic pool identity and trusted repository ID."
+  }
 }
