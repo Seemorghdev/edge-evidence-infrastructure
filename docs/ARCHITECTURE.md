@@ -1,63 +1,124 @@
-# Architecture and authority boundary
+# Architecture
 
-## Product responsibility
+Edge Evidence Infrastructure is a desired-state product with a deliberately separate execution boundary. Its job is to make infrastructure contracts portable, reviewable, and testable; a separately governed Operations layer decides whether and how any live environment is inspected or changed.
 
-This repository defines reusable provider/platform **desired state**. It does not contain an execution plane.
+## System view
 
-The repository contains five accepted Terraform desired-state products plus a repository-wide platform-state layer:
+```mermaid
+flowchart LR
+    R[Reviewer / CI] --> V[Credential-free validation]
+    V --> T[Terraform desired state]
+    V --> P[Platform desired state]
+    T --> G[GKE / Cloud Run / WIF / Workflow / Address contracts]
+    P --> K[Kubernetes / Kustomize / Helm / OTel primitives]
 
-1. `terraform/modules/gke-autopilot-cluster` plus `terraform/environments/gke-autopilot` — one guarded GKE Autopilot cluster with deployment coordinates and backend configuration supplied externally;
-2. `terraform/modules/cloud-run-service` plus `terraform/environments/cloud-run-service-example` — one reusable Cloud Run v2 service contract and a credential-free, single-service example composition;
-3. `terraform/environments/gke-exposure-address` — one guarded global external IPv4 resource contract with project, name, labels, and optional desired address supplied by the caller;
-4. `terraform/environments/github-ops-wif` — generic GitHub Actions OIDC trust provisioning: required bootstrap APIs, one operations service account, one WIF pool/provider, one repository-ID-scoped impersonation binding, and optional bounded project roles;
-5. `terraform/modules/private-cloud-run-workflow` plus `terraform/environments/private-cloud-run-workflow-example` — one generic workflow service account, one Google Workflow resource, and zero or more bounded Cloud Run `roles/run.invoker` IAM bindings;
-6. `platform/`, reusable `kustomize/` components, retained platform-only Helm templates, and `observability/` — namespace, NEG annotation, network-policy, Istio mTLS/namespace-injection, and OpenTelemetry desired-state/rendering primitives.
+    O[Operations execution control] -. separately authorized execution .-> C[(Live cloud / cluster)]
+    A[Reference Platform application authority] -. application runtime .-> C
 
-The GKE module assumes an existing project, VPC network, and subnetwork. It deliberately does not create networks, APIs, IAM, WIF, node pools, Kubernetes application workloads, Helm releases, DNS, certificates, or public addresses. Its accepted Phase-1 contract keeps Autopilot enabled, deletion protection and Terraform `prevent_destroy` enabled, and network, subnetwork, and release-channel selections caller-controlled.
+    G -. definitions only .-> C
+    K -. definitions only .-> C
+```
 
-The Cloud Run module assumes an existing project and accepts only resource-level desired-state inputs: region, service name, immutable image digest, container port, non-secret environment values, health path, ingress, deletion protection, and bounded scaling/resource settings. Internal-only ingress and deletion protection are defaults. The module owns no service account, IAM grant, API enablement, VPC, DNS, certificate, scheduler, WIF trust, provider credential, public-principal policy, or application topology.
+The dashed desired-state edges are intentionally non-executing. This repository describes provider/platform state and proves its shape offline; it does not authenticate to or mutate the live cloud/cluster.
 
-The Cloud Run example composes exactly one generic service with synthetic test coordinates. It has no remote backend binding and its tests mock the Google provider, so repository validation requires no cloud credentials.
+## Desired-state layers
 
-The global-address environment preserves only the reviewed resource shape: exactly one `google_compute_global_address`, `EXTERNAL`/`IPV4`, and Terraform `prevent_destroy`. It carries no live Project 03 address or project coordinate. Its desired-address input defaults to `null`; its GCS backend declaration is empty and externally configured; its tests use only a mocked provider and documentation-only synthetic input. The environment does not read, import, migrate, adopt, promote, or bind existing state.
+### 1. Reusable Terraform modules
 
-The GitHub WIF environment owns **provisioning desired state only**. It maps reviewed GitHub OIDC claims and constructs a fail-closed condition from required caller-supplied repository name/ID, owner ID, workflow ref, branch ref, event, and visibility. Project roles are an explicit bounded set and default to empty. The root carries no current live trust coordinate, backend coordinate, access-token transport, credential file, GitHub token, consumer workflow, or provider-authenticated action. Provisioning definitions do not authorize consumption or migrate existing trust.
+**GKE Autopilot — `terraform/modules/gke-autopilot-cluster`**
 
-The private Cloud Run workflow module owns only the provider/platform provisioning relationship retained from the source private-probe graph: one workflow service account, one Google Workflow resource, and bounded Cloud Run service IAM members. Target service identities are explicit caller inputs; missing target locations inherit the workflow region. No provider service lookup is retained, and target URIs are neither read nor output. `roles/run.invoker` is fixed in module code and cannot be selected by callers.
+One `google_container_cluster` with Autopilot enabled, deletion protection enabled, Terraform `prevent_destroy`, and caller-controlled network/subnetwork/release channel. Existing project/network prerequisites stay external.
 
-Workflow source contents are a required bounded caller input because the provider requires source on the workflow resource. Infrastructure does not define or interpret that source as execution policy. The example supplies an inert synthetic workflow that only returns a synthetic value. The source `workflow.yaml.tpl` program, application routes, HTTP methods, authenticated probe behavior, retry/error semantics, and evidence logic remain outside Infrastructure ownership. The source workflow's `deletion_protection = false` is retained to minimize semantic transformation; repository approval still grants no deletion, adoption, or provider execution authority.
+**Cloud Run — `terraform/modules/cloud-run-service`**
 
-## Platform-state layer
+One `google_cloud_run_v2_service` with immutable digest validation, internal-only ingress by default, deletion protection, bounded scaling/resources, startup/liveness probes, and non-secret environment input. IAM, service accounts, APIs, networking, DNS/TLS and public principals are excluded.
 
-Phase 7 expands Infrastructure ownership beyond Terraform without transferring application deployment authority. The retained Kubernetes/Kustomize/Helm/observability layer is intentionally primitive and reusable:
+**Private Cloud Run Workflow — `terraform/modules/private-cloud-run-workflow`**
 
-- a namespace desired-state manifest;
-- a generic GKE NEG annotation patch, detached from the source application Ingress route;
-- default-deny plus same-platform network policy;
-- OpenTelemetry collector configuration and optional collector Deployment/Service plumbing;
-- Istio namespace injection and STRICT `PeerAuthentication` mTLS;
-- Kustomize component/overlay relationships and Helm helper/toggle templates needed to render those primitives.
+One workflow service account, one Google Workflow resource, and bounded `roles/run.invoker` bindings to explicit Cloud Run service identities. Workflow source is required because it is part of the provider resource, but Infrastructure does not own runtime procedure or application behavior.
 
-No application Deployment, application Service, application Ingress route, live address binding, load generator, local/dev application overlay, or Skaffold deployment orchestration is retained. `scripts/validate_surfaces.py` and the platform policy checks validate these assets without cluster access.
+### 2. Synthetic / standalone Terraform environments
 
-The backend bucket parser retained in `scripts/backend_contract.py` is a pure contract-normalization helper extracted from a mixed Operations bootstrap file. It accepts already-observed payloads as input and contains no provider read, credential, subprocess, state, retry, or mutation behavior.
+- `terraform/environments/gke-autopilot` composes the GKE module with externally supplied backend/deployment coordinates.
+- `terraform/environments/cloud-run-service-example` demonstrates one generic Cloud Run service without a remote backend.
+- `terraform/environments/gke-exposure-address` models one guarded global external IPv4 resource.
+- `terraform/environments/github-ops-wif` models GitHub OIDC → Google WIF **provisioning** desired state.
+- `terraform/environments/private-cloud-run-workflow-example` demonstrates the private-workflow module with inert synthetic workflow source.
 
-## Transitional authority
+These roots are designed for review and mocked tests. They are not evidence that this repository currently provisions a live environment.
 
-The copy/generalize phase does not transfer live authority. `Seemorghdev/edge-evidence-reference-platform` remains the active Project 03 source of truth for state, accepted operational evidence, repository-bound execution controls, live provider relationships, the existing external address, current workflow/application behavior, current Kubernetes application topology, and current WIF/trust relationships.
+### 3. Generic platform state
 
-A future cutover would require separate review of destination CI parity, state/backend ownership, trust identity, workflow identity, Kubernetes deployment ownership, provenance, and operational authority. None of those are implied by the current extraction phases.
+`platform/kubernetes/` contains the smallest reusable Kubernetes primitives: namespace state and a generic NEG annotation patch.
 
-## Infrastructure versus Operations
+`kustomize/` composes network-policy, Istio mTLS/namespace injection, OpenTelemetry collector state, and an observability overlay without retaining application Deployments, Services, or Ingress routes.
 
-Infrastructure answers: **what provider/platform state should exist?**
+`helm-chart/edge-evidence-platform/` retains platform-only Istio and OpenTelemetry rendering with small feature gates.
 
-Operations answers: **which reviewed actor may inspect, execute, or change that state, by which exact procedure, and what evidence must be retained?**
+`observability/otel-collector-config.yaml` is standalone collector configuration used by retained platform plumbing.
 
-Accordingly this repository may define generic WIF provisioning resources, a generic Workflow resource, and inert Kubernetes/Helm/Kustomize desired-state assets, but contains no GitHub issue listener, `/gcp-ops` router, OIDC/WIF consumer workflow, token exchange, command history, workflow runtime procedure, retry/rollback policy, runbook executor, provider credentials, cluster credential acquisition, `kubectl apply`, Helm install/upgrade, Skaffold deploy, or evidence-retention workflow.
+## Authority model
 
-## Application boundary
+Infrastructure answers **what provider/platform state should exist**.
 
-Reference Platform retains concrete application services and contracts: service names, application routes, workload identities, real image coordinates, application-specific port/probe choices, environment values, same-origin behavior, local composition, application Kubernetes Deployments/Services/Ingress, application Helm templates, load-generator/Skaffold composition, and current private-probe target composition.
+Operations answers **which reviewed actor may execute or inspect live state, under which procedure and evidence requirements**.
 
-Infrastructure owns generic provider/platform resource contracts and reusable platform primitives plus their validation rules. Supplying a port, health path, environment map, immutable image reference, project, address name, labels, optional desired address, generic WIF trust coordinates, workflow source, generic Cloud Run service identity, namespace, policy, mesh, NEG, or observability configuration does not transfer ownership of application behavior, operational execution, or existing live provider state represented by those values.
+The Reference Platform owns concrete application runtime behavior and existing live application relationships.
+
+That split leads to several explicit boundaries:
+
+- No provider credential or impersonation transport is stored here.
+- CI does not request GitHub `id-token: write`.
+- Terraform validation uses backend-disabled initialization and mocked provider tests.
+- No workflow here performs live Terraform plan/apply/import/destroy/state operations.
+- No workflow performs `gcloud`, live `kubectl`, Helm install/upgrade, or Skaffold deployment.
+- No application Deployments/Services/Ingress topology is claimed by this repository.
+
+## Backend and state handling
+
+Environment roots that declare GCS backends use empty backend configuration. Bucket/prefix coordinates are supplied only by an independently authorized execution context; they are intentionally absent from repository desired state.
+
+This is a portability and authority boundary, not an incomplete configuration. Reviewers can validate configuration and tests without state access, while Operations retains responsibility for live backend identity and state procedure.
+
+`scripts/backend_contract.py` is a pure parser/comparator for already-observed bucket metadata. It demonstrates the expected backend safety contract—uniform bucket-level access, public-access prevention, versioning, and soft delete—without reading a provider itself.
+
+## WIF provisioning versus WIF consumption
+
+The WIF environment provisions a pool/provider and the minimum reviewed impersonation relationship using caller-supplied repository/workflow/ref/event/visibility coordinates. Project roles are explicit, bounded, and empty by default.
+
+It does **not** consume that trust. Token exchange, GitHub OIDC permission, provider authentication, and live repository-to-cloud execution remain Operations concerns. Keeping provisioning and consumption separate makes the trust graph easier to review and prevents a desired-state repository from becoming its own credentialed executor.
+
+## Static-address pattern versus live ownership
+
+The global-address environment models one `EXTERNAL`/`IPV4` address resource with `prevent_destroy` and an optional desired address. The optional value defaults to `null`.
+
+That resource contract is intentionally distinct from ownership of any current live address. There is no import block, state adoption, promotion procedure, or retained live address identity in this repository.
+
+## Source-derived offline validation
+
+Two source-derived helpers preserve mature validation behavior while removing execution authority:
+
+- `scripts/run_heavy_validation.sh` retains safe Helm/Kustomize rendering and Terraform fmt/backend-disabled init/validate/native-test structure.
+- `scripts/check_platform_authority.py` retains fail-closed scan-root, prohibited-pattern, backend/resource, and aggregate failure behavior with destination-owned authority bounds.
+
+Additional deterministic checks preserve the accepted source/provenance accounting and Terraform product inventory.
+
+## Why the design matters
+
+**Portability.** Environment-specific coordinates are parameters or external backend configuration rather than embedded live identities.
+
+**Reviewability.** Each Terraform root has a bounded resource inventory; platform primitives are small and application-independent; the authority model is explicit.
+
+**Least authority.** Provisioning definitions cannot silently become credentialed execution because provider transport, WIF consumption, state control, and cluster mutation are absent and policy-checked.
+
+**Reproducibility.** Locked provider versions, mocked Terraform-native tests, deterministic manifests, structural platform checks, and the offline demo create repeatable evidence from a clean checkout.
+
+## Review path
+
+Start with:
+
+```bash
+python scripts/portfolio_demo.py
+```
+
+Then use [`EVIDENCE.md`](EVIDENCE.md) for the full validation matrix and [`PROVENANCE.md`](PROVENANCE.md) only when deeper extraction/source history is needed.

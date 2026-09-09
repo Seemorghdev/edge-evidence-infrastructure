@@ -1,75 +1,114 @@
 # Edge Evidence Infrastructure
 
-Reusable, reviewable **desired-state** infrastructure for the Edge Evidence portfolio.
+Reusable **desired-state cloud and platform infrastructure** for the Edge Evidence portfolio, designed to be reviewable without granting a repository live cloud authority.
 
-## Authority boundary
+The project separates infrastructure design from infrastructure execution. Terraform modules describe guarded GKE, Cloud Run, static-address, Workload Identity Federation, and private-workflow relationships; Kubernetes/Kustomize/Helm/OpenTelemetry assets describe reusable platform primitives. CI proves those contracts with mocked providers, structural validation, provenance checks, and fail-closed authority scans.
 
-This repository defines what provider/platform state *should* exist. It does not authorize or execute provider changes.
+## Why this project is interesting
 
-During the current extraction phase, `Seemorghdev/edge-evidence-reference-platform` at source baseline `403ee070fcf31120c3f715bc32bb1643b428f7d2` **remains the live Project 03 authority** for active state, backend bindings, operational workflows, accepted cloud evidence, the existing external address, current workflow/application behavior, current Kubernetes application topology, and current WIF/trust relationships. This repository is a sanitized copy/generalization target only.
+- **Least-authority by design.** Desired state lives here; provider credentials, live Terraform execution, WIF consumption, cluster mutation, and application operations do not.
+- **Portable Terraform contracts.** Live project, network, backend, repository, workflow, and address coordinates are caller-supplied or intentionally absent.
+- **Guardrails are executable.** Immutable Cloud Run images, internal ingress defaults, deletion protection, bounded IAM/WIF inputs, `prevent_destroy`, and exact resource inventories are tested.
+- **Platform state is composable.** Kubernetes namespace/NEG primitives, Kustomize network-policy/mesh/OTel components, and platform-only Helm/OTel plumbing can be reviewed independently of application workloads.
+- **The review path is credential-free.** A clean checkout can run a deterministic portfolio demo using only Python, Git, checked-in assets, and existing repository validators.
 
-Repository approval does **not** grant authority for cloud authentication, Terraform plan/apply/import against live state, state migration, workflow execution, WIF trust consumption/migration, Project 03 cutover, address adoption/promotion, Kubernetes deployment, DNS/TLS changes, or provider mutation.
-
-## Desired-state products
-
-- `terraform/modules/gke-autopilot-cluster` plus `terraform/environments/gke-autopilot`: one guarded GKE Autopilot cluster with externally supplied deployment and backend coordinates.
-- `terraform/modules/cloud-run-service` plus `terraform/environments/cloud-run-service-example`: one generic Cloud Run v2 service requiring an immutable image digest, internal-only ingress by default, deletion protection, bounded runtime inputs, and health probes.
-- `terraform/environments/gke-exposure-address`: one guarded global external IPv4 desired-state resource with generic caller-supplied coordinates, optional desired address, and an externally configured backend.
-- `terraform/environments/github-ops-wif`: generic GitHub Actions OIDC → Google Workload Identity Federation **provisioning desired state** with caller-supplied repository trust coordinates and no project roles by default.
-- `terraform/modules/private-cloud-run-workflow` plus `terraform/environments/private-cloud-run-workflow-example`: one generic Google Workflow identity/resource plus bounded `roles/run.invoker` bindings to caller-supplied private Cloud Run service identities.
-- reusable platform-state primitives under `platform/`, `kustomize/`, `helm-chart/`, and `observability/`: namespace state, a generic NEG annotation patch, network policy, Istio mTLS/namespace injection, and OpenTelemetry collector/configuration surfaces. These are inert desired-state/rendering assets, not a Kubernetes execution plane.
-
-The Cloud Run example deliberately composes one generic service. It is not the Reference Platform's three-service application topology and carries no application routes, image identities, or Project 03 coordinates.
-
-The global-address environment is intentionally duplicated desired state during extraction. It does not identify, import, adopt, promote, bind, or otherwise claim the existing Project 03 address. Its desired-address input defaults to `null`, allowing provider allocation only if a separately authorized execution plane later applies it.
-
-The GitHub WIF environment provisions only the generic trust resources: bootstrap APIs, one operations service account, one pool/provider, one repository-ID-scoped impersonation binding, and optional bounded project-role bindings. All repository/workflow/ref/event/visibility identities are required caller inputs; project roles default to empty. It contains no WIF consumption workflow, GitHub token exchange, provider credentials, or claim that current live trust has moved here.
-
-The private Cloud Run workflow module provisions only a workflow service account, a Google Workflow resource, and zero or more Cloud Run service IAM members with the fixed `roles/run.invoker` role. Workflow source is required caller input and is outside Infrastructure execution/control ownership. The example source is inert and synthetic. No Project 03 service names, routes, target URIs, provider readback, GitHub WIF trust, token exchange, retry policy, probe program, or HTTP execution semantics were copied. The source workflow's `deletion_protection = false` is retained as generic desired-state semantics only; it does not authorize deletion or adoption of any existing workflow.
-
-The Phase 7 platform-state surfaces are deliberately narrower than the Reference Platform's Kubernetes/application packaging. Application Deployments, Services, Ingress routes, local/dev overlays, load-generator composition, Skaffold orchestration, and application Helm templates remain Reference Platform-owned. The retained OTel Deployment/Service is platform observability plumbing only.
-
-## Credential-free review
+## 60-second offline demo
 
 ```bash
-terraform fmt -check -recursive
-terraform -chdir=terraform/environments/gke-autopilot init -backend=false -input=false -lockfile=readonly
-terraform -chdir=terraform/environments/gke-autopilot validate
-terraform -chdir=terraform/environments/gke-autopilot test -no-color
-terraform -chdir=terraform/environments/cloud-run-service-example init -backend=false -input=false -lockfile=readonly
-terraform -chdir=terraform/environments/cloud-run-service-example validate
-terraform -chdir=terraform/environments/cloud-run-service-example test -no-color
-terraform -chdir=terraform/environments/gke-exposure-address init -backend=false -input=false -lockfile=readonly
-terraform -chdir=terraform/environments/gke-exposure-address validate
-terraform -chdir=terraform/environments/gke-exposure-address test -no-color
-terraform -chdir=terraform/environments/github-ops-wif init -backend=false -input=false -lockfile=readonly
-terraform -chdir=terraform/environments/github-ops-wif validate
-terraform -chdir=terraform/environments/github-ops-wif test -no-color
-terraform -chdir=terraform/environments/private-cloud-run-workflow-example init -backend=false -input=false -lockfile=readonly
-terraform -chdir=terraform/environments/private-cloud-run-workflow-example validate
-terraform -chdir=terraform/environments/private-cloud-run-workflow-example test -no-color
-terraform -chdir=terraform/modules/cloud-run-service init -backend=false -input=false
-terraform -chdir=terraform/modules/cloud-run-service validate
-terraform -chdir=terraform/modules/cloud-run-service test -no-color
-terraform -chdir=terraform/modules/private-cloud-run-workflow init -backend=false -input=false
-terraform -chdir=terraform/modules/private-cloud-run-workflow validate
-terraform -chdir=terraform/modules/private-cloud-run-workflow test -no-color
-python scripts/check_terraform_completion.py
-python scripts/check_infrastructure_manifest.py
-python scripts/check_platform_authority.py
-python scripts/validate_surfaces.py
-python scripts/check_policy.py
-python -m unittest discover -s tests -v
+python scripts/portfolio_demo.py
 ```
 
-All Terraform test lanes use a mocked Google provider. The private-workflow module includes one mocked Terraform `apply` run solely to resolve synthetic computed service-account attributes for exact IAM-member proof; the mock provider performs no GCP operation. No GCP credentials are required or expected. The retained platform validation is structural and credential-free; it performs no cluster access or mutation.
+Representative output:
 
-## Deliberately absent
+```text
+Edge Evidence Infrastructure — offline review
+[PASS] Terraform desired-state audit
+[PASS] Repository-wide manifest audit
+[PASS] Authority/publication policy
+[PASS] Retained platform primitives (Kubernetes, Kustomize, Helm, OpenTelemetry)
+[PASS] Synthetic backend contract (uniform access, public-access prevention, versioning, soft delete)
+[PASS] Live authority: not requested or exercised
+RESULT: PASS — credential-free desired-state validation completed
+```
 
-No live Project 03 coordinates, retained external IPv4, state/plan/import material, address adoption evidence, live workflow/service-account/Cloud Run target identities, live WIF pool/provider/service-account/repository coordinates, WIF consumption workflow, provider authentication, operational workflow program, application workloads/routes, application Ingress, application Helm/Kustomize/Skaffold orchestration, DNS/TLS/certificates, or cloud/Kubernetes execution are present.
+The demo performs no network request, cloud authentication, Terraform live action, WIF/OIDC exchange, or Kubernetes deployment. See [`docs/DEMO.md`](docs/DEMO.md) for the exact checks and [`docs/examples/portfolio-demo.txt`](docs/examples/portfolio-demo.txt) for the CI-guarded output contract.
 
-A later explicit authority-cutover review is required before this repository can become canonical for existing live state, workflows, trust, or Kubernetes application deployment. Operations/execution governance, workflow runtime/control semantics, WIF consumption semantics, and live Kubernetes mutation remain outside this repository.
+## What is in the repository
 
-## Provenance
+| Layer | Purpose | Start here |
+| --- | --- | --- |
+| Terraform modules | Reusable GKE Autopilot, Cloud Run, and private Cloud Run Workflow contracts | [`terraform/modules/`](terraform/modules/) |
+| Terraform examples | Synthetic/offline compositions for GKE, Cloud Run, static address, WIF provisioning, and private workflow | [`terraform/environments/`](terraform/environments/) |
+| Kubernetes platform primitives | Namespace and generic GKE NEG desired state | [`platform/kubernetes/`](platform/kubernetes/) |
+| Kustomize | Network policy, Istio mTLS/injection, OpenTelemetry components and an observability overlay | [`kustomize/`](kustomize/) |
+| Helm / OpenTelemetry | Platform-only mesh/collector rendering and standalone collector configuration | [`helm-chart/`](helm-chart/), [`observability/`](observability/) |
+| Validation | Source-derived validation, provenance, authority and publication checks | [`scripts/`](scripts/), [`tests/`](tests/) |
+| CI | Complete Terraform/offline policy gate plus Python 3.12/3.13 platform validation | [required](.github/workflows/required.yml), [platform-offline](.github/workflows/platform-offline.yml) |
 
-See [`docs/PROVENANCE.md`](docs/PROVENANCE.md) and [`docs/REPOSITORY_WIDE_EXTRACTION.md`](docs/REPOSITORY_WIDE_EXTRACTION.md).
+## Desired-state contracts
+
+### GKE Autopilot
+
+`terraform/modules/gke-autopilot-cluster` owns exactly one guarded Autopilot cluster. Network, subnetwork, and release channel are caller inputs; deletion protection and Terraform `prevent_destroy` remain enabled. The module does not create networks, node pools, workloads, DNS, certificates, or execution credentials.
+
+### Cloud Run
+
+`terraform/modules/cloud-run-service` owns exactly one Cloud Run v2 service. Images must be immutable digests, ingress defaults to internal-only, deletion protection is enabled by default, runtime resources/scaling are bounded, and startup/liveness probes are explicit. IAM, service accounts, APIs, VPC, DNS, certificates, and public principals remain outside this module.
+
+### Static external address
+
+`terraform/environments/gke-exposure-address` models one guarded global external IPv4 resource with caller-supplied identity and optional desired address. It does not import, adopt, release, or claim any existing live address.
+
+### GitHub WIF provisioning
+
+`terraform/environments/github-ops-wif` defines **provisioning desired state** for GitHub OIDC federation: required APIs, one service account, one pool/provider, fail-closed claim conditions, one repository-ID-scoped impersonation binding, and optional bounded project roles. It contains no token exchange or WIF consumer workflow.
+
+### Private Cloud Run workflow substrate
+
+`terraform/modules/private-cloud-run-workflow` defines one workflow service account, one Google Workflow resource, and bounded Cloud Run `roles/run.invoker` bindings to caller-supplied targets. Workflow source is a bounded input; runtime procedure, target URI discovery, WIF consumption, and application probe behavior are not owned here.
+
+### Platform primitives
+
+`platform/`, `kustomize/`, `helm-chart/`, and `observability/` retain reusable namespace, NEG, network-policy, Istio mTLS/injection, and OpenTelemetry desired state. They do not include application Deployments/Services/Ingress routes or a live deployment plane.
+
+## Validation model
+
+The repository proves design claims at several levels:
+
+1. Terraform-native tests use the mocked Google provider and validate exact resource inventories and fail-closed inputs.
+2. `scripts/check_policy.py` rejects authority/publication drift and unapproved Terraform surface growth.
+3. `scripts/check_platform_authority.py` and `scripts/validate_surfaces.py` validate retained platform assets without cluster access.
+4. `scripts/check_infrastructure_manifest.py` and `scripts/check_terraform_completion.py` keep source/provenance accounting deterministic.
+5. `scripts/check_portfolio.py` validates recruiter-facing links, output examples, sanitation, and the demo's no-live-authority contract.
+
+See [`docs/EVIDENCE.md`](docs/EVIDENCE.md) for claim-to-proof mapping and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the engineering story.
+
+## What this repository does not do
+
+This repository is **not a live execution plane**. It does not:
+
+- run Terraform plan/apply/import/destroy/state against a provider;
+- read or migrate live Terraform state/backends;
+- hold cloud/provider credentials;
+- consume GitHub OIDC/WIF or exchange tokens;
+- run `gcloud` or mutate a Kubernetes cluster;
+- install/upgrade Helm releases or deploy with Skaffold;
+- own application workloads, routes, DNS, TLS, or current live infrastructure identities;
+- publish evidence to live systems or change repository visibility.
+
+Existing live environment, application, and operational authority remains separately governed. This repository provides reusable desired-state definitions and offline evidence for review.
+
+## Navigation
+
+- **Architecture / engineering story:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- **Runnable demo:** [`docs/DEMO.md`](docs/DEMO.md)
+- **Evidence / examples:** [`docs/EVIDENCE.md`](docs/EVIDENCE.md), [`docs/examples/portfolio-demo.txt`](docs/examples/portfolio-demo.txt)
+- **Terraform modules and examples:** [`terraform/modules/`](terraform/modules/), [`terraform/environments/`](terraform/environments/)
+- **Platform surfaces:** [`platform/`](platform/), [`kustomize/`](kustomize/), [`helm-chart/`](helm-chart/), [`observability/`](observability/)
+- **Tests / CI:** [`tests/`](tests/), [required](.github/workflows/required.yml), [platform-offline](.github/workflows/platform-offline.yml)
+- **Authority / limitations:** [`docs/ARCHITECTURE.md#authority-model`](docs/ARCHITECTURE.md#authority-model)
+- **Provenance / extraction history:** [`docs/PROVENANCE.md`](docs/PROVENANCE.md), [`docs/REPOSITORY_WIDE_EXTRACTION.md`](docs/REPOSITORY_WIDE_EXTRACTION.md), [`docs/TERRAFORM_COMPLETION.md`](docs/TERRAFORM_COMPLETION.md)
+
+## Full local validation
+
+The primary demo is intentionally fast. To reproduce the broader CI checks, use the commands in [`docs/EVIDENCE.md`](docs/EVIDENCE.md). Terraform initialization is always backend-disabled for review, provider tests are mocked, and no credentials are expected.
