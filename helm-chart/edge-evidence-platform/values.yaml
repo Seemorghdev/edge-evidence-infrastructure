@@ -1,0 +1,5 @@
+namespaceOverride: edge-evidence
+observability:
+  enabled: false
+serviceMesh:
+  enabled: false

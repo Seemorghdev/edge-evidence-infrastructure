@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: edge-evidence}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-reference-platform, namespace: edge-evidence}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: edge-evidence}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/part-of: edge-evidence}}
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/part-of: edge-evidence}}
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}

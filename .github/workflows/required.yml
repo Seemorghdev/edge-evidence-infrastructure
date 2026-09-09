@@ -11,7 +11,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+      - name: Install repository validation dependencies
+        run: python -m pip install "PyYAML>=6,<7"
       - name: Terraform format
         run: terraform fmt -check -recursive
       - name: Initialize GKE example offline
@@ -67,8 +69,16 @@ jobs:
         run: |
           terraform -chdir=terraform/modules/private-cloud-run-workflow validate
           terraform -chdir=terraform/modules/private-cloud-run-workflow test -no-color
+      - name: Source-derived heavy Terraform validation
+        run: bash scripts/run_heavy_validation.sh terraform
       - name: Pinned Terraform completion audit
         run: python scripts/check_terraform_completion.py
+      - name: Repository-wide Infrastructure manifest
+        run: python scripts/check_infrastructure_manifest.py
+      - name: Platform authority boundary
+        run: python scripts/check_platform_authority.py
+      - name: Validate retained platform structures
+        run: python scripts/validate_surfaces.py
       - name: Authority and publication policy
         run: python scripts/check_policy.py
       - name: Repository tests

@@ -6,9 +6,9 @@ Reusable, reviewable **desired-state** infrastructure for the Edge Evidence port
 
 This repository defines what provider/platform state *should* exist. It does not authorize or execute provider changes.
 
-During the current extraction phase, `Seemorghdev/edge-evidence-reference-platform` at source baseline `403ee070fcf31120c3f715bc32bb1643b428f7d2` **remains the live Project 03 authority** for active state, backend bindings, operational workflows, accepted cloud evidence, the existing external address, current workflow/application behavior, and current WIF/trust relationships. This repository is a sanitized copy/generalization target only.
+During the current extraction phase, `Seemorghdev/edge-evidence-reference-platform` at source baseline `403ee070fcf31120c3f715bc32bb1643b428f7d2` **remains the live Project 03 authority** for active state, backend bindings, operational workflows, accepted cloud evidence, the existing external address, current workflow/application behavior, current Kubernetes application topology, and current WIF/trust relationships. This repository is a sanitized copy/generalization target only.
 
-Repository approval does **not** grant authority for cloud authentication, Terraform plan/apply/import against live state, state migration, workflow execution, WIF trust consumption/migration, Project 03 cutover, address adoption/promotion, DNS/TLS changes, or provider mutation.
+Repository approval does **not** grant authority for cloud authentication, Terraform plan/apply/import against live state, state migration, workflow execution, WIF trust consumption/migration, Project 03 cutover, address adoption/promotion, Kubernetes deployment, DNS/TLS changes, or provider mutation.
 
 ## Desired-state products
 
@@ -17,6 +17,7 @@ Repository approval does **not** grant authority for cloud authentication, Terra
 - `terraform/environments/gke-exposure-address`: one guarded global external IPv4 desired-state resource with generic caller-supplied coordinates, optional desired address, and an externally configured backend.
 - `terraform/environments/github-ops-wif`: generic GitHub Actions OIDC → Google Workload Identity Federation **provisioning desired state** with caller-supplied repository trust coordinates and no project roles by default.
 - `terraform/modules/private-cloud-run-workflow` plus `terraform/environments/private-cloud-run-workflow-example`: one generic Google Workflow identity/resource plus bounded `roles/run.invoker` bindings to caller-supplied private Cloud Run service identities.
+- reusable platform-state primitives under `platform/`, `kustomize/`, `helm-chart/`, and `observability/`: namespace state, a generic NEG annotation patch, network policy, Istio mTLS/namespace injection, and OpenTelemetry collector/configuration surfaces. These are inert desired-state/rendering assets, not a Kubernetes execution plane.
 
 The Cloud Run example deliberately composes one generic service. It is not the Reference Platform's three-service application topology and carries no application routes, image identities, or Project 03 coordinates.
 
@@ -25,6 +26,8 @@ The global-address environment is intentionally duplicated desired state during 
 The GitHub WIF environment provisions only the generic trust resources: bootstrap APIs, one operations service account, one pool/provider, one repository-ID-scoped impersonation binding, and optional bounded project-role bindings. All repository/workflow/ref/event/visibility identities are required caller inputs; project roles default to empty. It contains no WIF consumption workflow, GitHub token exchange, provider credentials, or claim that current live trust has moved here.
 
 The private Cloud Run workflow module provisions only a workflow service account, a Google Workflow resource, and zero or more Cloud Run service IAM members with the fixed `roles/run.invoker` role. Workflow source is required caller input and is outside Infrastructure execution/control ownership. The example source is inert and synthetic. No Project 03 service names, routes, target URIs, provider readback, GitHub WIF trust, token exchange, retry policy, probe program, or HTTP execution semantics were copied. The source workflow's `deletion_protection = false` is retained as generic desired-state semantics only; it does not authorize deletion or adoption of any existing workflow.
+
+The Phase 7 platform-state surfaces are deliberately narrower than the Reference Platform's Kubernetes/application packaging. Application Deployments, Services, Ingress routes, local/dev overlays, load-generator composition, Skaffold orchestration, and application Helm templates remain Reference Platform-owned. The retained OTel Deployment/Service is platform observability plumbing only.
 
 ## Credential-free review
 
@@ -51,18 +54,22 @@ terraform -chdir=terraform/modules/cloud-run-service test -no-color
 terraform -chdir=terraform/modules/private-cloud-run-workflow init -backend=false -input=false
 terraform -chdir=terraform/modules/private-cloud-run-workflow validate
 terraform -chdir=terraform/modules/private-cloud-run-workflow test -no-color
+python scripts/check_terraform_completion.py
+python scripts/check_infrastructure_manifest.py
+python scripts/check_platform_authority.py
+python scripts/validate_surfaces.py
 python scripts/check_policy.py
 python -m unittest discover -s tests -v
 ```
 
-All Terraform test lanes use a mocked Google provider. The private-workflow module includes one mocked Terraform `apply` run solely to resolve synthetic computed service-account attributes for exact IAM-member proof; the mock provider performs no GCP operation. No GCP credentials are required or expected.
+All Terraform test lanes use a mocked Google provider. The private-workflow module includes one mocked Terraform `apply` run solely to resolve synthetic computed service-account attributes for exact IAM-member proof; the mock provider performs no GCP operation. No GCP credentials are required or expected. The retained platform validation is structural and credential-free; it performs no cluster access or mutation.
 
 ## Deliberately absent
 
-No live Project 03 coordinates, retained external IPv4, state/plan/import material, address adoption evidence, live workflow/service-account/Cloud Run target identities, live WIF pool/provider/service-account/repository coordinates, WIF consumption workflow, provider authentication, operational workflow program, HTTP probe routes, application topology, Kubernetes workloads/Ingress/Service/NEG, DNS/TLS/certificates, or cloud execution are present.
+No live Project 03 coordinates, retained external IPv4, state/plan/import material, address adoption evidence, live workflow/service-account/Cloud Run target identities, live WIF pool/provider/service-account/repository coordinates, WIF consumption workflow, provider authentication, operational workflow program, application workloads/routes, application Ingress, application Helm/Kustomize/Skaffold orchestration, DNS/TLS/certificates, or cloud/Kubernetes execution are present.
 
-A later explicit authority-cutover review is required before this repository can become canonical for existing live state, workflows, or trust. Operations/execution governance, workflow runtime/control semantics, and WIF consumption semantics belong to the separate Operations product.
+A later explicit authority-cutover review is required before this repository can become canonical for existing live state, workflows, trust, or Kubernetes application deployment. Operations/execution governance, workflow runtime/control semantics, WIF consumption semantics, and live Kubernetes mutation remain outside this repository.
 
 ## Provenance
 
-See [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
+See [`docs/PROVENANCE.md`](docs/PROVENANCE.md) and [`docs/REPOSITORY_WIDE_EXTRACTION.md`](docs/REPOSITORY_WIDE_EXTRACTION.md).
