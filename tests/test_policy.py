@@ -22,10 +22,17 @@ class InfrastructurePolicyTests(unittest.TestCase):
             "terraform/modules/private-cloud-run-workflow",
         ])
 
-    def test_reference_platform_remains_declared_live_authority(self) -> None:
+    def test_live_authority_remains_outside_repository(self) -> None:
         readme = (ROOT / "README.md").read_text()
-        self.assertIn("remains the live Project 03 authority", readme)
+        architecture = (ROOT / "docs/ARCHITECTURE.md").read_text()
+        provenance = (ROOT / "docs/PROVENANCE.md").read_text()
         self.assertIn("desired-state", readme)
+        self.assertIn(
+            "Existing live environment, application, and operational authority remains separately governed",
+            readme,
+        )
+        self.assertIn("does not authenticate to or mutate the live cloud/cluster", architecture)
+        self.assertIn("Reference Platform remains the current live Project 03 authority", provenance)
 
     def test_global_address_is_sanitized_desired_state_only(self) -> None:
         address_main = (ROOT / "terraform/environments/gke-exposure-address/main.tf").read_text()

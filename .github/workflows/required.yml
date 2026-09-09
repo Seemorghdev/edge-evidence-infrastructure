@@ -81,5 +81,9 @@ jobs:
         run: python scripts/validate_surfaces.py
       - name: Authority and publication policy
         run: python scripts/check_policy.py
+      - name: Credential-free portfolio demo
+        run: python scripts/portfolio_demo.py
+      - name: Portfolio navigation, output, and sanitation
+        run: python scripts/check_portfolio.py
       - name: Repository tests
         run: python -m unittest discover -s tests -v
