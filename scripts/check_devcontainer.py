@@ -94,6 +94,19 @@ def main() -> int:
         require(required in dockerfile, f"Dockerfile evaluator invariant missing: {required}", failures)
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
+    require(
+        "uses: devcontainers/ci@v0.3\n"
+        "        with:\n"
+        "          inheritEnv: false\n"
+        "          push: never\n" in workflow,
+        "devcontainer smoke must explicitly disable image publication with push: never",
+        failures,
+    )
+    require(
+        re.search(r"(?mi)^\s*imageName\s*:", workflow) is None,
+        "devcontainer smoke must not configure an imageName publication target",
+        failures,
+    )
     for required in (
         "permissions:\n  contents: read",
         "persist-credentials: false",
