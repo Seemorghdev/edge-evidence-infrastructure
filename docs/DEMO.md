@@ -37,6 +37,32 @@ RESULT: PASS — credential-free desired-state validation completed
 
 A failure returns a non-zero exit code and names the failed stage.
 
+## Codespaces evaluator
+
+The repository includes a destination-native `.devcontainer/` for hands-on evaluation. A fresh Codespace provides Python 3.12, Terraform 1.9.8, the repository Python validation dependencies, and an isolated Docker daemon used by the retained Helm/Kustomize rendering path. It intentionally does not install Google Cloud authentication tooling, `gcloud`, `kubectl`, Helm, Kustomize, or Skaffold as local evaluator binaries.
+
+After the Codespace finishes creating, run the same primary command without any manual package installation:
+
+```bash
+python scripts/portfolio_demo.py
+```
+
+For the deeper credential-free evaluator path:
+
+```bash
+terraform version
+python scripts/check_infrastructure_manifest.py
+python scripts/check_platform_authority.py
+python scripts/validate_surfaces.py
+python scripts/check_portfolio.py
+python scripts/check_devcontainer.py
+python -m unittest discover -s tests -v
+bash scripts/run_heavy_validation.sh terraform
+bash scripts/run_heavy_validation.sh kubernetes
+```
+
+The Terraform heavy phase keeps backend initialization disabled and uses the accepted mocked-provider tests. The Kubernetes heavy phase uses the existing pinned Docker images to lint/render only; it does not acquire cluster credentials or contact a Kubernetes API.
+
 ## Deeper validation
 
-The demo is a fast review path, not a replacement for CI. The complete Terraform and platform checks are listed in [`EVIDENCE.md`](EVIDENCE.md) and run in `.github/workflows/required.yml` plus `.github/workflows/platform-offline.yml`.
+The demo is a fast review path, not a replacement for CI. The complete Terraform and platform checks are listed in [`EVIDENCE.md`](EVIDENCE.md) and run in `.github/workflows/required.yml` plus `.github/workflows/platform-offline.yml`. The dedicated `.github/workflows/devcontainer-smoke.yml` additionally builds this evaluator configuration and executes the primary and deeper paths inside it.
