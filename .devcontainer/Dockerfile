@@ -5,6 +5,7 @@ ARG TERRAFORM_LINUX_AMD64_SHA256=186e0145f5e5f2eb97cbd785bc78f21bae4ef15119349f6
 ARG TERRAFORM_LINUX_ARM64_SHA256=f85868798834558239f6148834884008f2722548f84034c9b0f62934b2d73ebb
 
 RUN set -eux; \
+    rm -f /etc/apt/sources.list.d/yarn.list /etc/apt/sources.list.d/yarn.sources; \
     command -v curl; \
     command -v unzip; \
     command -v sha256sum; \
