@@ -26,21 +26,24 @@ EXPECTED_DOCKER_OPTIONS = {
 }
 
 PROHIBITED = {
-    "Google Cloud CLI": re.compile(r"\bgcloud\b", re.I),
+    "Google Cloud CLI execution": re.compile(r"(?m)^\s*(?:run:\s*)?gcloud\s+", re.I),
     "Google auth action": re.compile(r"google-github-actions/auth", re.I),
     "OIDC write permission": re.compile(r"id-token\s*:\s*write", re.I),
     "Terraform live action": re.compile(
         r"\bterraform\s+(?:plan|apply|import|destroy|state|force-unlock)\b", re.I
     ),
-    "kubectl command": re.compile(r"\bkubectl\b", re.I),
+    "kubectl mutation": re.compile(
+        r"\bkubectl\s+(?:apply|create|delete|patch|replace|rollout|scale|set|exec|run)\b",
+        re.I,
+    ),
     "Helm mutation": re.compile(
         r"\bhelm\s+(?:install|upgrade|uninstall|rollback)\b", re.I
     ),
-    "Skaffold command": re.compile(r"\bskaffold\b", re.I),
+    "Skaffold mutation": re.compile(r"\bskaffold\s+(?:run|deploy|dev|delete)\b", re.I),
     "gcp-ops command authority": re.compile(r"/gcp-ops\b", re.I),
     "GitHub Actions secret reference": re.compile(r"\bsecrets\.", re.I),
     "provider credential transport": re.compile(
-        r"\b(?:GOOGLE_APPLICATION_CREDENTIALS|access_token|impersonate_service_account)\b", re.I
+        r"\b(?:access_token|impersonate_service_account)\b", re.I
     ),
 }
 
@@ -59,12 +62,24 @@ def main() -> int:
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
     require(set(config) == EXPECTED_CONFIG_KEYS, "devcontainer top-level surface drift", failures)
-    require(config.get("build") == {"dockerfile": "Dockerfile"}, "devcontainer must build only .devcontainer/Dockerfile", failures)
+    require(
+        config.get("build") == {"dockerfile": "Dockerfile"},
+        "devcontainer must build only .devcontainer/Dockerfile",
+        failures,
+    )
     require(config.get("remoteUser") == "vscode", "devcontainer remoteUser must remain vscode", failures)
     features = config.get("features")
-    require(isinstance(features, dict) and set(features) == {DOCKER_FEATURE}, "devcontainer must contain only the Docker-in-Docker feature", failures)
+    require(
+        isinstance(features, dict) and set(features) == {DOCKER_FEATURE},
+        "devcontainer must contain only the Docker-in-Docker feature",
+        failures,
+    )
     if isinstance(features, dict) and DOCKER_FEATURE in features:
-        require(features[DOCKER_FEATURE] == EXPECTED_DOCKER_OPTIONS, "Docker-in-Docker options drifted from evaluator-only contract", failures)
+        require(
+            features[DOCKER_FEATURE] == EXPECTED_DOCKER_OPTIONS,
+            "Docker-in-Docker options drifted from evaluator-only contract",
+            failures,
+        )
 
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     for required in (
@@ -84,6 +99,10 @@ def main() -> int:
         "persist-credentials: false",
         "uses: devcontainers/ci@v0.3",
         "inheritEnv: false",
+        'for tool in gcloud kubectl helm kustomize skaffold; do ! command -v "$tool"; done',
+        'test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"',
+        'test -z "${CLOUDSDK_CONFIG:-}"',
+        'test -z "${GOOGLE_CLOUD_PROJECT:-}"',
         "python scripts/portfolio_demo.py",
         "python scripts/check_infrastructure_manifest.py",
         "python scripts/check_platform_authority.py",
