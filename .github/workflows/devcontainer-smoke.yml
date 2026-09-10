@@ -1,0 +1,42 @@
+name: devcontainer-smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  evaluator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Fail-closed evaluator policy
+        run: python scripts/check_devcontainer.py
+      - name: Build and exercise evaluator devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          inheritEnv: false
+          runCmd: |
+            python --version
+            test "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "3.12"
+            terraform version -json | python -c 'import json, sys; assert json.load(sys.stdin)["terraform_version"] == "1.9.8"'
+            docker info --format '{{.ServerVersion}}'
+            for tool in gcloud kubectl helm kustomize skaffold; do ! command -v "$tool"; done
+            test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+            test -z "${CLOUDSDK_CONFIG:-}"
+            test -z "${GOOGLE_CLOUD_PROJECT:-}"
+            python scripts/portfolio_demo.py
+            python scripts/check_infrastructure_manifest.py
+            python scripts/check_platform_authority.py
+            python scripts/validate_surfaces.py
+            python scripts/check_portfolio.py
+            python scripts/check_devcontainer.py
+            python -m unittest discover -s tests -v
+            bash scripts/run_heavy_validation.sh terraform
+            bash scripts/run_heavy_validation.sh kubernetes

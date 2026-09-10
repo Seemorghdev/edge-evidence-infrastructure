@@ -1,0 +1,16 @@
+{
+  "name": "Edge Evidence Infrastructure evaluator",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
+      "version": "latest",
+      "moby": true,
+      "dockerDashComposeVersion": "none",
+      "installDockerBuildx": false,
+      "installDockerComposeSwitch": false
+    }
+  },
+  "remoteUser": "vscode"
+}
