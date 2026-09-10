@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -30,6 +31,17 @@ class DevcontainerEvaluatorTests(unittest.TestCase):
         self.assertNotIn("gcloud", dockerfile.lower())
         self.assertNotIn("kubectl", dockerfile.lower())
         self.assertNotIn("skaffold", dockerfile.lower())
+
+    def test_evaluator_workflow_is_explicitly_nonpublishing(self) -> None:
+        workflow = (ROOT / ".github/workflows/devcontainer-smoke.yml").read_text()
+        self.assertIn(
+            "uses: devcontainers/ci@v0.3\n"
+            "        with:\n"
+            "          inheritEnv: false\n"
+            "          push: never\n",
+            workflow,
+        )
+        self.assertIsNone(re.search(r"(?mi)^\s*imageName\s*:", workflow))
 
 
 if __name__ == "__main__":
