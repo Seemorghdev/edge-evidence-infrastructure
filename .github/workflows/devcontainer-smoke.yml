@@ -22,6 +22,7 @@ jobs:
         uses: devcontainers/ci@v0.3
         with:
           inheritEnv: false
+          push: never
           runCmd: |
             python --version
             test "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "3.12"
